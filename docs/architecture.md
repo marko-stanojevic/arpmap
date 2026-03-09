@@ -17,9 +17,10 @@ internal/
 │   └── iface.go            # interface discovery + IPv4 subnet extraction
 ├── arp/
 │   ├── arp.go              # ARP packet crafting, scan logic, free-IP logic
+│   ├── scan_windows.go     # Windows scan via native SendARP()
 │   ├── socket_linux.go     # AF_PACKET implementation
 │   ├── socket_darwin.go    # BPF implementation
-│   └── socket_windows.go   # explicit unsupported-runtime stub
+│   └── socket_windows.go   # Windows raw socket placeholder (unused)
 └── output/
     └── output.go           # JSON response DTOs
 ```
@@ -44,7 +45,7 @@ internal/
 Raw socket code is split by build tags:
 - Linux: `AF_PACKET`
 - macOS: BPF
-- Windows: compile-time support with explicit unsupported-runtime error path
+- Windows: scan path uses `SendARP()` from `iphlpapi.dll` (no raw socket dependency)
 
 This keeps platform details isolated and avoids branching inside core scanner logic.
 

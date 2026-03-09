@@ -7,9 +7,12 @@
 package arp
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
 	"net"
+	"runtime"
+	"sort"
 	"sync"
 	"time"
 
@@ -67,6 +70,15 @@ func buildEthernetFrame(src, dst net.HardwareAddr, payload []byte) []byte {
 // Scan sends ARP requests to every host in every subnet of the given interface
 // and returns the set of responding devices.
 func Scan(info iface.Info) ([]output.Device, error) {
+	if runtime.GOOS == "windows" {
+		devices, err := scanWindows(info)
+		if err != nil {
+			return nil, fmt.Errorf("scanning on windows: %w", err)
+		}
+		sortDevices(devices)
+		return devices, nil
+	}
+
 	conn, err := openRawConn(info.Iface)
 	if err != nil {
 		return nil, fmt.Errorf("opening raw socket on %s: %w", info.Name, err)
@@ -146,6 +158,7 @@ func Scan(info iface.Info) ([]output.Device, error) {
 	for ip, mac := range devices {
 		result = append(result, output.Device{IP: ip, MAC: mac})
 	}
+	sortDevices(result)
 	return result, nil
 }
 
@@ -268,4 +281,15 @@ func isTimeout(err error) bool {
 		return netErr.Timeout()
 	}
 	return false
+}
+
+func sortDevices(devices []output.Device) {
+	sort.Slice(devices, func(i, j int) bool {
+		left := net.ParseIP(devices[i].IP).To4()
+		right := net.ParseIP(devices[j].IP).To4()
+		if left != nil && right != nil {
+			return bytes.Compare(left, right) < 0
+		}
+		return devices[i].IP < devices[j].IP
+	})
 }
