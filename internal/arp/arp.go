@@ -11,6 +11,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"net"
+	"os"
 	"runtime"
 	"sort"
 	"sync"
@@ -67,9 +68,40 @@ func buildEthernetFrame(src, dst net.HardwareAddr, payload []byte) []byte {
 	return frame
 }
 
+// ScanConfig holds options for the Scan operation.
+type ScanConfig struct {
+	Debug bool
+}
+
+// ScanOption is a functional option for configuring Scan.
+type ScanOption func(*ScanConfig)
+
+// WithDebug enables or disables debug logging for scanning operations.
+func WithDebug(enabled bool) ScanOption {
+	return func(cfg *ScanConfig) {
+		cfg.Debug = enabled
+	}
+}
+
 // Scan sends ARP requests to every host in every subnet of the given interface
 // and returns the set of responding devices.
-func Scan(info iface.Info) ([]output.Device, error) {
+func Scan(info iface.Info, opts ...ScanOption) ([]output.Device, error) {
+	cfg := &ScanConfig{Debug: false}
+	for _, opt := range opts {
+		opt(cfg)
+	}
+	return scan(info, cfg.Debug)
+}
+
+// scan performs the actual ARP scanning with the given debug flag.
+func scan(info iface.Info, debug bool) ([]output.Device, error) {
+	scanStart := time.Now()
+	if debug {
+		fmt.Fprintf(os.Stderr, "[DEBUG] === Scan started ===\n")
+		fmt.Fprintf(os.Stderr, "[DEBUG] Interface: %s, MAC: %s\n", info.Name, info.Iface.HardwareAddr.String())
+		fmt.Fprintf(os.Stderr, "[DEBUG] Subnets: %s\n", info.CIDRs)
+	}
+
 	if runtime.GOOS == "windows" {
 		devices, err := scanWindows(info)
 		if err != nil {
@@ -86,6 +118,9 @@ func Scan(info iface.Info) ([]output.Device, error) {
 	defer conn.Close()
 
 	targets := hostsFromNets(info.Nets)
+	if debug {
+		fmt.Fprintf(os.Stderr, "[DEBUG] Total targets to probe: %d\n", len(targets))
+	}
 
 	var (
 		mu      sync.Mutex
@@ -95,9 +130,16 @@ func Scan(info iface.Info) ([]output.Device, error) {
 	// Background reader goroutine — collects ARP replies.
 	stop := make(chan struct{})
 	readerDone := make(chan struct{})
+	readCount := 0
+	timeoutCount := 0
 	go func() {
 		defer close(readerDone)
-		buf := make([]byte, 1500)
+		defer func() {
+			if debug {
+				fmt.Fprintf(os.Stderr, "[DEBUG] Reader stats: reads=%d, timeouts=%d, unique devices=%d\n", readCount, timeoutCount, len(devices))
+			}
+		}()
+		buf := make([]byte, 4096) // BPF buffer must match system BPF buffer size
 		for {
 			select {
 			case <-stop:
@@ -111,10 +153,12 @@ func Scan(info iface.Info) ([]output.Device, error) {
 			n, err := conn.Read(buf)
 			if err != nil {
 				if isTimeout(err) {
+					timeoutCount++
 					continue
 				}
 				return
 			}
+			readCount++
 			if n < 42 {
 				continue
 			}
@@ -128,6 +172,10 @@ func Scan(info iface.Info) ([]output.Device, error) {
 			}
 			senderMAC := net.HardwareAddr(append([]byte{}, buf[22:28]...)).String()
 			senderIP := net.IP(append([]byte{}, buf[28:32]...)).String()
+
+			if debug {
+				fmt.Fprintf(os.Stderr, "[DEBUG] ARP reply: %s -> %s (packet size: %d bytes)\n", senderIP, senderMAC, n)
+			}
 
 			mu.Lock()
 			devices[senderIP] = senderMAC
@@ -144,7 +192,7 @@ func Scan(info iface.Info) ([]output.Device, error) {
 		go func(target net.IP) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			sendARP(conn, info.Iface, target)
+			sendARP(conn, info.Iface, target, debug)
 		}(ip)
 	}
 	wg.Wait()
@@ -159,13 +207,30 @@ func Scan(info iface.Info) ([]output.Device, error) {
 		result = append(result, output.Device{IP: ip, MAC: mac})
 	}
 	sortDevices(result)
+
+	if debug {
+		duration := time.Since(scanStart)
+		fmt.Fprintf(os.Stderr, "[DEBUG] Scan completed in %v\n", duration)
+		fmt.Fprintf(os.Stderr, "[DEBUG] Response rate: %d/%d (%.1f%%)\n", len(devices), len(targets), float64(len(devices))*100/float64(len(targets)))
+		fmt.Fprintf(os.Stderr, "[DEBUG] === Scan finished ===\n")
+	}
+
 	return result, nil
 }
 
 // FindFree scans the subnet and returns IP addresses that did NOT respond.
 // If max > 0 the result is capped at max addresses.
-func FindFree(info iface.Info, max int) ([]string, error) {
-	devices, err := Scan(info)
+func FindFree(info iface.Info, max int, opts ...ScanOption) ([]string, error) {
+	cfg := &ScanConfig{Debug: false}
+	for _, opt := range opts {
+		opt(cfg)
+	}
+	return findFree(info, max, cfg.Debug)
+}
+
+// findFree performs the actual free IP lookup with the given debug flag.
+func findFree(info iface.Info, max int, debug bool) ([]string, error) {
+	devices, err := scan(info, debug)
 	if err != nil {
 		return nil, err
 	}
@@ -240,7 +305,7 @@ func incIP(ip net.IP) {
 	}
 }
 
-func sendARP(conn net.Conn, ifc *net.Interface, target net.IP) {
+func sendARP(conn net.Conn, ifc *net.Interface, target net.IP, debug bool) {
 	srcMAC := ifc.HardwareAddr
 	if len(srcMAC) == 0 {
 		return
@@ -273,6 +338,10 @@ func sendARP(conn net.Conn, ifc *net.Interface, target net.IP) {
 	frame := buildEthernetFrame(srcMAC, bcast, payload)
 	if _, err := conn.Write(frame); err != nil {
 		return
+	}
+
+	if debug {
+		fmt.Fprintf(os.Stderr, "[DEBUG] ARP request: who-has %s tell %s (from %s) (packet size: %d bytes)\n", target, srcIP, srcMAC.String(), len(frame))
 	}
 }
 
