@@ -25,13 +25,13 @@ It provides two commands:
 
 - Go 1.22+
 - Linux/macOS with permissions for raw sockets (`root` or `CAP_NET_RAW`)
-- Windows builds/tests are supported; raw ARP scan/find execution is currently unsupported on Windows.
+- Windows scan/find is supported using `ping` + ARP table discovery (`arp -a`).
 
 ## Platform Support
 
 - Linux: full support (scan/find with raw sockets)
 - macOS: full support (scan/find with BPF backend)
-- Windows: build/test support; scan/find runtime is currently unsupported
+- Windows: scan/find supported via `ping` priming + `arp -a` parsing
 
 ## Quick Start
 
