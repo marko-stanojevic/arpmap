@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/marko-stanojevic/arpmap/arp"
-	"github.com/marko-stanojevic/arpmap/iface"
-	"github.com/marko-stanojevic/arpmap/output"
+	"github.com/marko-stanojevic/arpmap/internal/arp"
+	"github.com/marko-stanojevic/arpmap/internal/iface"
+	"github.com/marko-stanojevic/arpmap/internal/output"
 	"github.com/spf13/cobra"
 )
 

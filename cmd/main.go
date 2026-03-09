@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/marko-stanojevic/arpmap/cmd"
+	"github.com/marko-stanojevic/arpmap/internal/cmd"
 )
 
 func main() {

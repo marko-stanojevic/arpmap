@@ -1,63 +1,54 @@
-# Contributing to hostr
+# Contributing to arpmap
 
-Thank you for your interest in contributing! We welcome bug fixes, improvements, and new ideas.
+Thanks for contributing. This project focuses on ARP-based subnet discovery and free-IP reporting.
 
 ## Quick Start
 
-1. **Fork and clone** the repository
-2. **Create a branch**: `git checkout -b feat/your-feature`
-3. **Make your changes**
-4. **Run tests**: `go test ./... -race`
-5. **Run lint**: `golangci-lint run ./...`
-6. **Commit**: `git commit -m "feat: add your feature"`
-7. **Push and open a Pull Request**
+1. Fork and clone the repository.
+2. Create a branch: `git checkout -b feat/your-feature`.
+3. Implement your change.
+4. Run checks:
 
-## What We Need
+	```bash
+	go mod tidy
+	go build ./...
+	go vet ./...
+	go test ./... -v -race -cover
+	golangci-lint run ./...
+	```
 
-### Before You Start
+5. Commit with a conventional message.
+6. Open a pull request.
 
-- Check existing issues and PRs to avoid duplicates
-- For significant changes, open an issue first to discuss the approach
+## Contribution Scope
 
-### Code Requirements
+Useful contributions include:
+- ARP scan reliability and parsing improvements
+- Interface/subnet resolution improvements
+- Better command UX and validation
+- Test coverage and docs updates
 
-✅ **Must have:**
+## Code Requirements
 
-- Tests pass (`go test ./... -race`)
-- `go vet` and `golangci-lint` pass
-- Tests for new packages or functions
+- Keep `cmd/main.go` thin; place behavior in `internal/` packages.
+- Wrap errors using `%w` with context.
+- Add tests for non-trivial behavior changes.
+- Add/update godoc comments for exported identifiers.
+- Update docs when command behavior or output changes.
 
-✅ **Good to have:**
-
-- Doc comments on all exported identifiers
-- Clear commit messages following conventional commits
-- Updated documentation if behaviour changes
-
-### File Locations
-
-- Command entry points → `cmd/<name>/main.go`
-- Business logic → `internal/<pkg>/`
-- Tests → same directory, `<file>_test.go`
-
-## Commit Messages
+## Commit Examples
 
 ```bash
-git commit -m "feat: add CPU temperature display"    # New feature
-git commit -m "fix: handle missing /proc/meminfo"    # Bug fix
-git commit -m "docs: update getting-started guide"  # Docs only
-git commit -m "chore: update golangci-lint config"  # Maintenance
+git commit -m "feat: add optional per-interface timeout"
+git commit -m "fix: skip link-local subnets in resolver"
+git commit -m "docs: update find command examples"
+git commit -m "chore: align golangci-lint settings"
 ```
 
 ## Need Help?
 
-- 📖 See [Getting Started](docs/getting-started.md) for setup
-- 📖 See [Development Guide](docs/development.md) for coding details
-- 💬 Open an issue for questions
+- See [docs/getting-started.md](docs/getting-started.md)
+- See [docs/development.md](docs/development.md)
+- Open an issue for discussion before large changes
 
-## Code of Conduct
-
-Be respectful and collaborative. That's it.
-
----
-
-**Thank you for contributing!** 🎉
+Be respectful and collaborative.

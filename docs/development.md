@@ -1,94 +1,64 @@
 # Development Guide
 
-## Adding a New TUI Command
+## Core Conventions
 
-1. Create the entry point:
+- Keep `cmd/main.go` as a thin entry point.
+- Put all behavior in `internal/` packages.
+- Wrap errors with context using `%w`.
+- Add tests for non-trivial logic changes.
+- Keep command side effects in command handlers, not package init logic.
 
-   ```bash
-   mkdir -p cmd/mycommand
-   touch cmd/mycommand/main.go
-   ```
+## Adding a New CLI Subcommand
 
-2. Create the UI model in `internal/ui/mycommand/model.go`:
+1. Create a new file in `internal/cmd/` (for example `stats.go`).
+2. Define a `cobra.Command` and flags.
+3. Implement `RunE` with clear error wrapping.
+4. Register the command in `internal/cmd/cmd.go` (`rootCmd.AddCommand(...)`).
+5. Add tests for the new behavior (and fixtures if needed).
 
-   ```go
-   package mycommand
+Minimal pattern:
 
-   import tea "github.com/charmbracelet/bubbletea"
+```go
+var statsCmd = &cobra.Command{
+   Use:   "stats",
+   Short: "Show scan statistics",
+   RunE:  runStats,
+}
 
-   type Model struct{}
-
-   func NewModel() Model { return Model{} }
-   func (m Model) Init() tea.Cmd { return nil }
-   func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) { return m, nil }
-   func (m Model) View() string { return "Hello from mycommand!" }
-   ```
-
-3. Wire it in `cmd/mycommand/main.go`:
-
-   ```go
-   package main
-
-   import (
-       tea "github.com/charmbracelet/bubbletea"
-       "github.com/marko-stanojevic/hostr/internal/ui/mycommand"
-   )
-
-   func main() {
-       p := tea.NewProgram(mycommand.NewModel(), tea.WithAltScreen())
-       p.Run()
-   }
-   ```
-
-4. Add a corresponding `_test.go` file.
-
-5. Add a new entry under `builds:` in `.goreleaser.yml`.
-
-## Adding New System Metrics
-
-1. Add fields to `internal/sysinfo/Info`:
-
-   ```go
-   type Info struct {
-       // ...existing fields...
-       NetworkRx string
-       NetworkTx string
-   }
-   ```
-
-2. Populate them in `Collect()`:
-
-   ```go
-   if counters, err := net.IOCounters(false); err == nil && len(counters) > 0 {
-       info.NetworkRx = formatBytes(counters[0].BytesRecv)
-       info.NetworkTx = formatBytes(counters[0].BytesSent)
-   }
-   ```
-
-3. Update `internal/ui/model.go` to render the new fields.
-
-4. Add tests in `internal/sysinfo/sysinfo_test.go`.
-
-## Running Tests
-
-```bash
-# All tests with race detector
-go test ./... -race
-
-# With coverage
-go test ./... -race -coverprofile=coverage.out
-go tool cover -html=coverage.out
+func runStats(cmd *cobra.Command, args []string) error {
+   // business logic
+   return nil
+}
 ```
 
-## Linting
+## Extending Scan or Find Results
+
+1. Update structures in `internal/output/output.go`.
+2. Populate fields from `internal/cmd/scan.go` and/or `internal/cmd/find.go`.
+3. Add tests to lock the JSON shape.
+4. Update docs and examples.
+
+## ARP Scanner Changes
+
+When changing behavior in `internal/arp/`:
+- Keep raw socket handling platform-safe (`socket_linux.go`, `socket_darwin.go`).
+- Preserve bounded concurrency to avoid FD exhaustion.
+- Validate timeouts and reply parsing logic carefully.
+- Avoid introducing blocking behavior in the read path.
+
+## Local Quality Checks
 
 ```bash
+go mod tidy
+go build ./...
+go vet ./...
+go test ./... -v -race -cover
 golangci-lint run ./...
 ```
 
-## Building a Release Locally
+## Release Notes
 
-```bash
-goreleaser release --snapshot --clean
-# Binaries appear in dist/
-```
+Before release workflows:
+- ensure command docs are current,
+- ensure JSON output changes are documented,
+- ensure CI checks are green.

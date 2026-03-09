@@ -13,8 +13,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/marko-stanojevic/arpmap/iface"
-	"github.com/marko-stanojevic/arpmap/output"
+	"github.com/marko-stanojevic/arpmap/internal/iface"
+	"github.com/marko-stanojevic/arpmap/internal/output"
 )
 
 const (

@@ -2,65 +2,58 @@
 
 ## Prerequisites
 
-- **Go 1.22+** — [download](https://go.dev/dl/)
-- **Git**
-- **Visual Studio Code** with the Go extension (recommended)
-- **golangci-lint** — `brew install golangci-lint` or see [install docs](https://golangci-lint.run/welcome/install/)
-
-Optional:
-- **Docker / Rancher Desktop** for the devcontainer
-- **goreleaser** for local release builds
+- Go 1.22+
+- Git
+- `golangci-lint` (recommended)
+- Linux or macOS environment with raw socket permission (`root` or `CAP_NET_RAW`)
 
 ## Quick Start
 
 ```bash
-# 1. Clone the repository
-git clone https://github.com/marko-stanojevic/hostr.git
-cd hostr
+git clone https://github.com/marko-stanojevic/arpmap.git
+cd arpmap
 
-# 2. Download dependencies
-go mod download
+go mod tidy
+go build ./...
 
-# 3. Run the sysinfo TUI
-go run ./cmd/sysinfo
+# show commands
+go run ./cmd --help
 
-# 4. Run tests
-go test ./... -race
+# scan for active hosts
+sudo go run ./cmd scan --output devices.json
 
-# 5. Run the linter
-golangci-lint run ./...
+# find candidate free IPs
+sudo go run ./cmd find --count 10 --output free_ips.json
 ```
 
-## Keyboard Controls (sysinfo)
+## Verify Your Setup
 
-| Key | Action |
-|-----|--------|
-| `r` | Refresh stats immediately |
-| `q` / `Ctrl+C` | Quit |
+```bash
+go vet ./...
+go test ./... -v -race -cover
+```
+
+## Typical Output Files
+
+- `devices.json`: per-interface list of discovered `ip` and `mac`
+- `free_ips.json`: per-interface list of non-responding host IPs
 
 ## Project Layout
 
-```
-hostr/
+```text
+arpmap/
 ├── cmd/
-│   └── sysinfo/main.go       # Entry point for the sysinfo command
+│   └── main.go
 ├── internal/
-│   ├── sysinfo/              # System metric collection
-│   │   ├── sysinfo.go
-│   │   └── sysinfo_test.go
-│   └── ui/                   # Bubble Tea model + view
-│       ├── model.go
-│       └── model_test.go
-├── docs/                     # Documentation
-├── .github/                  # CI/CD workflows and templates
-├── .devcontainer/            # Dev container config
-├── .vscode/                  # Editor settings
-├── .goreleaser.yml           # Cross-compilation & release
-└── .golangci.yml             # Linter config
+│   ├── arp/      # ARP packet building, sending, reply collection
+│   ├── cmd/      # Cobra command definitions (root/scan/find)
+│   ├── iface/    # Interface and IPv4 subnet resolution
+│   └── output/   # JSON output DTOs
+└── docs/
 ```
 
 ## Next Steps
 
-- Read the [Development Guide](development.md) for adding new commands and metrics
-- Read the [CI/CD Guide](ci-cd.md) for release and versioning workflows
-- Read the [Architecture Guide](architecture.md) for design patterns and extensibility
+- [Development Guide](development.md)
+- [Architecture](architecture.md)
+- [CI/CD & Release Guide](ci-cd.md)

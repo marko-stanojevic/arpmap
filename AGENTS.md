@@ -34,7 +34,7 @@ AI agents must generate code that:
 ### Package Layout
 
 ```
-cmd/<command>/main.go     // Thin entry point; wires dependencies
+cmd/main.go               // Thin entry point; wires dependencies
 internal/<pkg>/           // Business logic, unexported outside module
 internal/<pkg>/<pkg>.go   // Primary file, same name as package
 internal/<pkg>/<pkg>_test.go
@@ -55,9 +55,9 @@ if err != nil {
 
 ### Naming
 
-- Receivers: short, consistent, lowercase (e.g. `m` for `Model`)
+- Receivers: short, consistent, lowercase (e.g. `c` for command struct, `i` for info type)
 - Acronyms: `ID`, `URL`, `HTTP` (all caps)
-- Avoid stuttering: prefer `ui.Model` over `ui.UIModel`
+- Avoid stuttering in package/type names
 
 ### Concurrency
 
@@ -65,12 +65,13 @@ if err != nil {
 - Prefer `context.Context` propagation over raw `time.Sleep`/`select` loops
 - Use `errgroup` for fan-out operations
 
-### Bubble Tea Patterns
+### CLI and Scanner Patterns
 
-- Keep `Model` flat — avoid deeply nested state structs
-- One `Update` switch per message type; extract helpers freely
-- Commands (`tea.Cmd`) are the only place for side effects
-- Never block in `Update` or `View`
+- Keep Cobra command wiring in `internal/cmd`
+- Keep interface discovery logic in `internal/iface`
+- Keep ARP packet/socket behavior isolated in `internal/arp`
+- Keep output DTOs centralized in `internal/output`
+- Avoid hidden side effects in `init()`; prefer explicit command registration
 
 ---
 
@@ -85,15 +86,15 @@ if err != nil {
 **Example Test Structure:**
 
 ```go
-func TestCollect_ReturnsInfo(t *testing.T) {
+func TestResolve_ReturnsInterfaces(t *testing.T) {
     t.Parallel()
 
-    info, err := sysinfo.Collect()
+    interfaces, err := iface.Resolve("")
     if err != nil {
-        t.Fatalf("Collect() unexpected error: %v", err)
+        t.Fatalf("Resolve() unexpected error: %v", err)
     }
-    if info.OS == "" {
-        t.Error("expected non-empty OS")
+    if len(interfaces) == 0 {
+        t.Error("expected at least one resolved interface")
     }
 }
 ```
@@ -114,11 +115,11 @@ func TestCollect_ReturnsInfo(t *testing.T) {
 Use conventional commit prefixes to control changelog sections:
 
 ```bash
-git commit -m "feat: add network interface stats"      # New feature
-git commit -m "fix: correct disk usage on macOS"       # Bug fix
+git commit -m "feat: add subnet filter for scan"       # New feature
+git commit -m "fix: skip invalid IPv4 masks"           # Bug fix
 git commit -m "docs: update getting-started guide"     # Docs only
 git commit -m "chore: bump golangci-lint to v1.60"     # Maintenance
-git commit -m "feat!: rename Model.Info to Model.Data" # Breaking change
+git commit -m "feat!: rename output field for scan"    # Breaking change
 ```
 
 ---
@@ -129,8 +130,8 @@ git commit -m "feat!: rename Model.Info to Model.Data" # Breaking change
 - Export only what callers need; keep internals in `internal/`
 - Every exported symbol needs a doc comment
 - Write parallel table-driven tests; always call `t.Parallel()`
-- Side effects belong in `tea.Cmd`, never in `Update`/`View`
-- Use interfaces for testability; inject dependencies via constructors
+- Keep command parsing in `internal/cmd` and network logic in `internal/arp`
+- Keep JSON output contracts in `internal/output` consistent with docs
 - Run `go mod tidy` after adding or removing imports
 
 ---
