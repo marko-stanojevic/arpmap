@@ -1,5 +1,5 @@
 {
-    "name": "go-hostr",
+    "name": "go-arpmap-devcontainer",
     "build": {
         "dockerfile": "Dockerfile"
     },
