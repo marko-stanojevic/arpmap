@@ -63,11 +63,32 @@ func openRawConn(ifc *net.Interface) (net.Conn, error) {
 		return nil, fmt.Errorf("BIOCIMMEDIATE: %w", errno)
 	}
 
+	// Enable promiscuous mode to capture all packets.
+	if _, _, errno := syscall.Syscall(syscall.SYS_IOCTL, uintptr(fd), 0x20004269 /* BIOCPROMISC */, 0); errno != 0 {
+		syscall.Close(fd)
+		return nil, fmt.Errorf("BIOCPROMISC: %w", errno)
+	}
+
+	// Set header complete mode (we provide full Ethernet headers).
+	hdrCmplt := uint32(1)
+	if _, _, errno := syscall.Syscall(syscall.SYS_IOCTL, uintptr(fd), 0x80044275 /* BIOCSHDRCMPLT */, uintptr(unsafe.Pointer(&hdrCmplt))); errno != 0 {
+		syscall.Close(fd)
+		return nil, fmt.Errorf("BIOCSHDRCMPLT: %w", errno)
+	}
+
+	// Set non-blocking mode for reads.
+	if err := syscall.SetNonblock(fd, true); err != nil {
+		syscall.Close(fd)
+		return nil, fmt.Errorf("SetNonblock: %w", err)
+	}
+
 	// Set BPF filter for ARP frames only.
 	// BPF instructions: ldh [12], jeq 0x0806 pass, ret 65535, ret 0
 	type bpfInsn struct {
-		Code, Jt, Jf uint16
-		K            uint32
+		Code uint16
+		Jt   uint8
+		Jf   uint8
+		K    uint32
 	}
 	filter := []bpfInsn{
 		{0x28, 0, 0, 12},
@@ -99,22 +120,27 @@ type bpfConn struct {
 
 func (c *bpfConn) Read(b []byte) (int, error) {
 	if len(c.buf) == 0 {
-		c.buf = make([]byte, 65536)
+		c.buf = make([]byte, 4096)
 	}
 
+	deadline := c.deadline
 	for {
 		if pkt, ok := c.nextPacket(); ok {
 			n := copy(b, pkt)
 			return n, nil
 		}
 
-		if !c.deadline.IsZero() {
-			tv := syscall.NsecToTimeval(time.Until(c.deadline).Nanoseconds())
-			syscall.SetsockoptTimeval(c.fd, syscall.SOL_SOCKET, syscall.SO_RCVTIMEO, &tv) //nolint:errcheck
-		}
-
 		n, err := syscall.Read(c.fd, c.buf)
 		if err != nil {
+			if errno, ok := err.(syscall.Errno); ok && (errno == syscall.EAGAIN || errno == syscall.EWOULDBLOCK) {
+				// Non-blocking read with no data - check deadline
+				if !deadline.IsZero() && time.Now().After(deadline) {
+					return 0, &net.OpError{Op: "read", Net: "raw", Err: syscall.ETIMEDOUT}
+				}
+				// Sleep briefly and retry
+				time.Sleep(10 * time.Millisecond)
+				continue
+			}
 			return 0, &net.OpError{Op: "read", Net: "raw", Err: err}
 		}
 		if n <= 0 {

@@ -1,6 +1,7 @@
 # Binaries
 dist/
 bin/
+arpmap
 *.exe
 *.out
 
@@ -26,3 +27,6 @@ Thumbs.db
 
 # Local tooling
 .tools/
+# Output files
+devices.json
+free_ips.json
