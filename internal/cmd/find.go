@@ -45,14 +45,19 @@ func runFind(cmd *cobra.Command, args []string) error {
 		Interfaces: []output.FreeInterfaceResult{},
 	}
 
+	failedInterfaces := 0
+	successfulInterfaces := 0
+
 	for _, ifc := range interfaces {
 		fmt.Fprintf(os.Stderr, "[*] Scanning %s (%s) ...\n", ifc.Name, ifc.CIDRs)
 
 		freeIPs, err := arp.FindFree(ifc, findCount)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "[!] %s: %v\n", ifc.Name, err)
+			failedInterfaces++
 			continue
 		}
+		successfulInterfaces++
 
 		ifaceResult := output.FreeInterfaceResult{
 			Interface: ifc.Name,
@@ -62,6 +67,11 @@ func runFind(cmd *cobra.Command, args []string) error {
 		result.Interfaces = append(result.Interfaces, ifaceResult)
 
 		fmt.Fprintf(os.Stderr, "[+] %s: found %d free address(es)\n", ifc.Name, len(freeIPs))
+	}
+
+	if successfulInterfaces == 0 {
+		fmt.Fprintf(os.Stderr, "[!] All %d interface scan(s) failed; no output file was created.\n", failedInterfaces)
+		return fmt.Errorf("all interface scans failed")
 	}
 
 	data, err := json.MarshalIndent(result, "", "  ")
