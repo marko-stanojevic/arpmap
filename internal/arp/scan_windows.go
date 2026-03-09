@@ -4,10 +4,13 @@ package arp
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"net"
+	"os"
 	"sync"
 	"syscall"
+	"time"
 	"unsafe"
 
 	"github.com/marko-stanojevic/arpmap/internal/iface"
@@ -30,7 +33,14 @@ var (
 	initSendARPErr error
 )
 
-func scanWindows(info iface.Info) ([]output.Device, error) {
+const (
+	windowsWorkerCount      = 32
+	windowsProbeAttempts    = 2
+	windowsProbeRetryDelay  = 150 * time.Millisecond
+	windowsNoResponseLogCap = 10
+)
+
+func scanWindows(info iface.Info, debug bool) ([]output.Device, error) {
 	if err := initializeSendARP(); err != nil {
 		return nil, fmt.Errorf("initializing SendARP: %w", err)
 	}
@@ -40,10 +50,21 @@ func scanWindows(info iface.Info) ([]output.Device, error) {
 		return nil, nil
 	}
 
-	sem := make(chan struct{}, workerCount)
+	if debug {
+		fmt.Fprintf(os.Stderr, "[DEBUG] [windows] SendARP probing started\n")
+		fmt.Fprintf(os.Stderr, "[DEBUG] [windows] Targets=%d, workers=%d, attempts=%d\n", len(targets), windowsWorkerCount, windowsProbeAttempts)
+	}
+
+	sem := make(chan struct{}, windowsWorkerCount)
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	devicesByIP := make(map[string]string, len(targets))
+	errnoCounts := make(map[syscall.Errno]int)
+	noResponseIPs := make([]string, 0, windowsNoResponseLogCap)
+	probedCount := 0
+	responseCount := 0
+	noResponseCount := 0
+	errorCount := 0
 	errCh := make(chan error, 1)
 
 	for _, ip := range targets {
@@ -54,8 +75,22 @@ func scanWindows(info iface.Info) ([]output.Device, error) {
 			defer wg.Done()
 			defer func() { <-sem }()
 
-			mac, found, err := resolveMACWithSendARP(target)
+			mac, found, err := resolveMACWithSendARPRetries(target, windowsProbeAttempts)
+
+			mu.Lock()
+			probedCount++
+			mu.Unlock()
+
 			if err != nil {
+				var errno syscall.Errno
+				if errors.As(err, &errno) {
+					mu.Lock()
+					errnoCounts[errno]++
+					mu.Unlock()
+				}
+				mu.Lock()
+				errorCount++
+				mu.Unlock()
 				select {
 				case errCh <- err:
 				default:
@@ -63,11 +98,18 @@ func scanWindows(info iface.Info) ([]output.Device, error) {
 				return
 			}
 			if !found {
+				mu.Lock()
+				noResponseCount++
+				if debug && len(noResponseIPs) < windowsNoResponseLogCap {
+					noResponseIPs = append(noResponseIPs, target.String())
+				}
+				mu.Unlock()
 				return
 			}
 
 			mu.Lock()
 			devicesByIP[target.String()] = mac.String()
+			responseCount++
 			mu.Unlock()
 		}()
 	}
@@ -78,12 +120,46 @@ func scanWindows(info iface.Info) ([]output.Device, error) {
 		return nil, fmt.Errorf("scanning subnet hosts: %w", err)
 	}
 
+	if debug {
+		fmt.Fprintf(os.Stderr, "[DEBUG] [windows] Probed=%d, responded=%d, no-response=%d, errors=%d\n", probedCount, responseCount, noResponseCount, errorCount)
+		if len(noResponseIPs) > 0 {
+			fmt.Fprintf(os.Stderr, "[DEBUG] [windows] Sample no-response IPs: %v\n", noResponseIPs)
+		}
+		if len(errnoCounts) > 0 {
+			for errno, count := range errnoCounts {
+				fmt.Fprintf(os.Stderr, "[DEBUG] [windows] SendARP errno=%d count=%d\n", errno, count)
+			}
+		}
+		fmt.Fprintf(os.Stderr, "[DEBUG] [windows] Unique devices discovered=%d\n", len(devicesByIP))
+	}
+
 	devices := make([]output.Device, 0, len(devicesByIP))
 	for ip, mac := range devicesByIP {
 		devices = append(devices, output.Device{IP: ip, MAC: mac})
 	}
 
 	return devices, nil
+}
+
+func resolveMACWithSendARPRetries(target net.IP, attempts int) (net.HardwareAddr, bool, error) {
+	if attempts < 1 {
+		attempts = 1
+	}
+
+	for attempt := 1; attempt <= attempts; attempt++ {
+		mac, found, err := resolveMACWithSendARP(target)
+		if err != nil {
+			return nil, false, err
+		}
+		if found {
+			return mac, true, nil
+		}
+		if attempt < attempts {
+			time.Sleep(windowsProbeRetryDelay)
+		}
+	}
+
+	return nil, false, nil
 }
 
 func initializeSendARP() error {
@@ -102,7 +178,7 @@ func resolveMACWithSendARP(target net.IP) (net.HardwareAddr, bool, error) {
 	var mac [8]byte
 	macLen := uint32(len(mac))
 	r1, _, _ := sendARPProc.Call(
-		uintptr(binary.BigEndian.Uint32(ip4)),
+		uintptr(binary.LittleEndian.Uint32(ip4)),
 		0,
 		uintptr(unsafe.Pointer(&mac[0])),
 		uintptr(unsafe.Pointer(&macLen)),

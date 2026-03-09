@@ -103,7 +103,7 @@ func scan(info iface.Info, debug bool) ([]output.Device, error) {
 	}
 
 	if runtime.GOOS == "windows" {
-		devices, err := scanWindows(info)
+		devices, err := scanWindows(info, debug)
 		if err != nil {
 			return nil, fmt.Errorf("scanning on windows: %w", err)
 		}
