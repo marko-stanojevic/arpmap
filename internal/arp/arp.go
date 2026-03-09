@@ -93,7 +93,9 @@ func Scan(info iface.Info) ([]output.Device, error) {
 			default:
 			}
 
-			conn.SetReadDeadline(time.Now().Add(readDeadline))
+			if err := conn.SetReadDeadline(time.Now().Add(readDeadline)); err != nil {
+				return
+			}
 			n, err := conn.Read(buf)
 			if err != nil {
 				if isTimeout(err) {
@@ -256,7 +258,9 @@ func sendARP(conn net.Conn, ifc *net.Interface, target net.IP) {
 	payload := marshalARP(pkt)
 	bcast := net.HardwareAddr{0xff, 0xff, 0xff, 0xff, 0xff, 0xff}
 	frame := buildEthernetFrame(srcMAC, bcast, payload)
-	conn.Write(frame) //nolint:errcheck — best-effort
+	if _, err := conn.Write(frame); err != nil {
+		return
+	}
 }
 
 func isTimeout(err error) bool {

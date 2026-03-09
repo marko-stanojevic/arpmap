@@ -32,10 +32,10 @@ func openRawConn(ifc *net.Interface) (net.Conn, error) {
 
 	// BPF filter: only pass ARP frames (ethertype 0x0806).
 	filter := []syscall.SockFilter{
-		{Code: 0x28, Jt: 0, Jf: 0, K: 12},      // ldh [12]
-		{Code: 0x15, Jt: 0, Jf: 1, K: 0x0806},  // jeq #0x0806
-		{Code: 0x06, Jt: 0, Jf: 0, K: 65535},   // ret #65535
-		{Code: 0x06, Jt: 0, Jf: 0, K: 0},        // ret #0
+		{Code: 0x28, Jt: 0, Jf: 0, K: 12},     // ldh [12]
+		{Code: 0x15, Jt: 0, Jf: 1, K: 0x0806}, // jeq #0x0806
+		{Code: 0x06, Jt: 0, Jf: 0, K: 65535},  // ret #65535
+		{Code: 0x06, Jt: 0, Jf: 0, K: 0},      // ret #0
 	}
 	prog := syscall.SockFprog{
 		Len:    uint16(len(filter)),
@@ -79,9 +79,9 @@ func (c *rawConn) Write(b []byte) (int, error) {
 	return n, err
 }
 
-func (c *rawConn) Close() error               { return syscall.Close(c.fd) }
-func (c *rawConn) LocalAddr() net.Addr        { return &net.IPAddr{} }
-func (c *rawConn) RemoteAddr() net.Addr       { return &net.IPAddr{} }
+func (c *rawConn) Close() error                       { return syscall.Close(c.fd) }
+func (c *rawConn) LocalAddr() net.Addr                { return &net.IPAddr{} }
+func (c *rawConn) RemoteAddr() net.Addr               { return &net.IPAddr{} }
 func (c *rawConn) SetDeadline(t time.Time) error      { c.deadline = t; return nil }
 func (c *rawConn) SetReadDeadline(t time.Time) error  { c.deadline = t; return nil }
 func (c *rawConn) SetWriteDeadline(_ time.Time) error { return nil }

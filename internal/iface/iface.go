@@ -12,9 +12,9 @@ type Info struct {
 	Name  string
 	Iface *net.Interface
 	// CIDRs is a human-readable summary of all IPv4 networks on this interface.
-	CIDRs  string
+	CIDRs string
 	// Nets holds the parsed IPv4 networks for iteration.
-	Nets   []*net.IPNet
+	Nets []*net.IPNet
 }
 
 // Resolve returns interface info for the named interface, or all non-loopback
