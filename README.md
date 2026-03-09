@@ -25,13 +25,13 @@ It provides two commands:
 
 - Go 1.22+
 - Linux/macOS with permissions for raw sockets (`root` or `CAP_NET_RAW`)
-- Windows scan/find is supported using `ping` + ARP table discovery (`arp -a`).
+- Windows scan/find is supported using native `SendARP()` (`iphlpapi.dll`) without CGO.
 
 ## Platform Support
 
 - Linux: full support (scan/find with raw sockets)
 - macOS: full support (scan/find with BPF backend)
-- Windows: scan/find supported via `ping` priming + `arp -a` parsing
+- Windows: scan/find supported via native `SendARP()` probes
 
 ## Quick Start
 

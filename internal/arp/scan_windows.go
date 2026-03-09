@@ -3,113 +3,131 @@
 package arp
 
 import (
-	"errors"
+	"encoding/binary"
 	"fmt"
 	"net"
-	"os/exec"
-	"regexp"
-	"strings"
 	"sync"
+	"syscall"
+	"unsafe"
 
 	"github.com/marko-stanojevic/arpmap/internal/iface"
 	"github.com/marko-stanojevic/arpmap/internal/output"
 )
 
-var windowsARPLineRe = regexp.MustCompile(`(?i)\b((?:\d{1,3}\.){3}\d{1,3})\s+([0-9a-f]{2}(?:[-:][0-9a-f]{2}){5})\b`)
+const (
+	errorGenFailure      syscall.Errno = 31
+	errorBadNetName      syscall.Errno = 67
+	errorSemTimeout      syscall.Errno = 121
+	errorNetworkUnreach  syscall.Errno = 1231
+	errorHostUnreach     syscall.Errno = 1232
+	errorElementNotFound syscall.Errno = 1168
+)
+
+var (
+	iphlpapiDLL    = syscall.NewLazyDLL("iphlpapi.dll")
+	sendARPProc    = iphlpapiDLL.NewProc("SendARP")
+	initSendARPOne sync.Once
+	initSendARPErr error
+)
 
 func scanWindows(info iface.Info) ([]output.Device, error) {
+	if err := initializeSendARP(); err != nil {
+		return nil, fmt.Errorf("initializing SendARP: %w", err)
+	}
+
 	targets := hostsFromNets(info.Nets)
 	if len(targets) == 0 {
 		return nil, nil
 	}
 
-	targetSet := make(map[string]struct{}, len(targets))
-	for _, ip := range targets {
-		targetSet[ip.String()] = struct{}{}
-	}
-
 	sem := make(chan struct{}, workerCount)
 	var wg sync.WaitGroup
+	var mu sync.Mutex
+	devicesByIP := make(map[string]string, len(targets))
 	errCh := make(chan error, 1)
 
 	for _, ip := range targets {
-		targetIP := ip.String()
+		target := cloneIP(ip)
 		wg.Add(1)
 		sem <- struct{}{}
 		go func() {
 			defer wg.Done()
 			defer func() { <-sem }()
-			if err := primeWindowsARPEntry(targetIP); err != nil {
+
+			mac, found, err := resolveMACWithSendARP(target)
+			if err != nil {
 				select {
 				case errCh <- err:
 				default:
 				}
+				return
 			}
+			if !found {
+				return
+			}
+
+			mu.Lock()
+			devicesByIP[target.String()] = mac.String()
+			mu.Unlock()
 		}()
 	}
 
 	wg.Wait()
 	close(errCh)
 	if err, ok := <-errCh; ok {
-		return nil, fmt.Errorf("probing subnet hosts: %w", err)
+		return nil, fmt.Errorf("scanning subnet hosts: %w", err)
 	}
 
-	arpOutput, err := exec.Command("arp", "-a").Output()
-	if err != nil {
-		return nil, fmt.Errorf("running arp -a: %w", err)
-	}
-
-	parsed := parseWindowsARPTable(string(arpOutput))
-	devices := make([]output.Device, 0, len(parsed))
-	seen := make(map[string]struct{}, len(parsed))
-	for _, device := range parsed {
-		if _, ok := targetSet[device.IP]; !ok {
-			continue
-		}
-		if _, duplicate := seen[device.IP]; duplicate {
-			continue
-		}
-		seen[device.IP] = struct{}{}
-		devices = append(devices, device)
+	devices := make([]output.Device, 0, len(devicesByIP))
+	for ip, mac := range devicesByIP {
+		devices = append(devices, output.Device{IP: ip, MAC: mac})
 	}
 
 	return devices, nil
 }
 
-func primeWindowsARPEntry(ip string) error {
-	cmd := exec.Command("ping", "-n", "1", "-w", "250", ip)
-	if err := cmd.Run(); err != nil {
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
-			return nil
-		}
-		return fmt.Errorf("ping %s: %w", ip, err)
-	}
-	return nil
+func initializeSendARP() error {
+	initSendARPOne.Do(func() {
+		initSendARPErr = sendARPProc.Find()
+	})
+	return initSendARPErr
 }
 
-func parseWindowsARPTable(raw string) []output.Device {
-	lines := strings.Split(raw, "\n")
-	devices := make([]output.Device, 0, len(lines))
-
-	for _, line := range lines {
-		matches := windowsARPLineRe.FindStringSubmatch(line)
-		if len(matches) != 3 {
-			continue
-		}
-
-		ip := net.ParseIP(matches[1]).To4()
-		if ip == nil {
-			continue
-		}
-
-		mac := strings.ToLower(strings.ReplaceAll(matches[2], "-", ":"))
-		if _, err := net.ParseMAC(mac); err != nil {
-			continue
-		}
-
-		devices = append(devices, output.Device{IP: ip.String(), MAC: mac})
+func resolveMACWithSendARP(target net.IP) (net.HardwareAddr, bool, error) {
+	ip4 := target.To4()
+	if ip4 == nil {
+		return nil, false, fmt.Errorf("target %q is not IPv4", target.String())
 	}
 
-	return devices
+	var mac [8]byte
+	macLen := uint32(len(mac))
+	r1, _, _ := sendARPProc.Call(
+		uintptr(binary.BigEndian.Uint32(ip4)),
+		0,
+		uintptr(unsafe.Pointer(&mac[0])),
+		uintptr(unsafe.Pointer(&macLen)),
+	)
+	if r1 != 0 {
+		errno := syscall.Errno(r1)
+		if isNoARPResponseError(errno) {
+			return nil, false, nil
+		}
+		return nil, false, fmt.Errorf("SendARP %s: %w", target.String(), errno)
+	}
+	if macLen == 0 || macLen > uint32(len(mac)) {
+		return nil, false, nil
+	}
+
+	resolved := make(net.HardwareAddr, macLen)
+	copy(resolved, mac[:macLen])
+	return resolved, true, nil
+}
+
+func isNoARPResponseError(errno syscall.Errno) bool {
+	switch errno {
+	case errorGenFailure, errorBadNetName, errorSemTimeout, errorNetworkUnreach, errorHostUnreach, errorElementNotFound:
+		return true
+	default:
+		return false
+	}
 }
