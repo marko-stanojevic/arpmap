@@ -57,7 +57,7 @@ func openRawConn(ifc *net.Interface) (net.Conn, error) {
 
 	// Enable immediate mode so reads return as soon as data is available.
 	enable := uint32(1)
-	if _, _, errno := syscall.Syscall(syscall.SYS_IOCTL, uintptr(fd), 0x80044266 /* BIOCIMMEDIATE */, uintptr(unsafe.Pointer(&enable))); errno != 0 {
+	if _, _, errno := syscall.Syscall(syscall.SYS_IOCTL, uintptr(fd), 0x80044270 /* BIOCIMMEDIATE */, uintptr(unsafe.Pointer(&enable))); errno != 0 {
 		syscall.Close(fd)
 		return nil, fmt.Errorf("BIOCIMMEDIATE: %w", errno)
 	}
