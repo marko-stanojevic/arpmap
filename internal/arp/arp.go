@@ -154,7 +154,7 @@ func Scan(info iface.Info) ([]output.Device, error) {
 	close(stop)
 	<-readerDone
 
-	var result []output.Device
+	result := make([]output.Device, 0, len(devices))
 	for ip, mac := range devices {
 		result = append(result, output.Device{IP: ip, MAC: mac})
 	}
@@ -180,7 +180,7 @@ func FindFree(info iface.Info, max int) ([]string, error) {
 		used[broadcastAddr(network).String()] = struct{}{}
 	}
 
-	var free []string
+	free := make([]string, 0)
 	for _, network := range info.Nets {
 		for _, ip := range hostsFromNet(network) {
 			if _, inUse := used[ip.String()]; !inUse {

@@ -3,6 +3,7 @@
 package arp
 
 import (
+	"encoding/binary"
 	"fmt"
 	"net"
 	"syscall"
@@ -100,32 +101,104 @@ func (c *bpfConn) Read(b []byte) (int, error) {
 	if len(c.buf) == 0 {
 		c.buf = make([]byte, 65536)
 	}
-	if c.bufStart < c.bufEnd {
-		n := copy(b, c.buf[c.bufStart:c.bufEnd])
-		c.bufStart += n
-		return n, nil
+
+	for {
+		if pkt, ok := c.nextPacket(); ok {
+			n := copy(b, pkt)
+			return n, nil
+		}
+
+		if !c.deadline.IsZero() {
+			tv := syscall.NsecToTimeval(time.Until(c.deadline).Nanoseconds())
+			syscall.SetsockoptTimeval(c.fd, syscall.SOL_SOCKET, syscall.SO_RCVTIMEO, &tv) //nolint:errcheck
+		}
+
+		n, err := syscall.Read(c.fd, c.buf)
+		if err != nil {
+			return 0, &net.OpError{Op: "read", Net: "raw", Err: err}
+		}
+		if n <= 0 {
+			continue
+		}
+
+		c.bufStart = 0
+		c.bufEnd = n
+	}
+}
+
+func (c *bpfConn) nextPacket() ([]byte, bool) {
+	for c.bufStart < c.bufEnd {
+		record := c.buf[c.bufStart:c.bufEnd]
+		hdrLen, capLen, alignedLen, ok := parseBPFRecord(record)
+		if !ok {
+			c.bufStart = c.bufEnd
+			return nil, false
+		}
+
+		packetStart := c.bufStart + hdrLen
+		packetEnd := packetStart + capLen
+		c.bufStart += alignedLen
+
+		if packetEnd > c.bufEnd || packetStart >= packetEnd {
+			continue
+		}
+
+		return c.buf[packetStart:packetEnd], true
 	}
 
-	if !c.deadline.IsZero() {
-		tv := syscall.NsecToTimeval(time.Until(c.deadline).Nanoseconds())
-		syscall.SetsockoptTimeval(c.fd, syscall.SOL_SOCKET, syscall.SO_RCVTIMEO, &tv) //nolint:errcheck
+	return nil, false
+}
+
+func parseBPFRecord(record []byte) (hdrLen int, capLen int, alignedLen int, ok bool) {
+	if len(record) < 18 {
+		return 0, 0, 0, false
 	}
 
-	n, err := syscall.Read(c.fd, c.buf)
-	if err != nil {
-		return 0, &net.OpError{Op: "read", Net: "raw", Err: err}
+	// Common Darwin/BSD bpf_hdr layout (8-byte timeval):
+	// caplen @ +8, datalen @ +12, hdrlen @ +16.
+	if len(record) >= 18 {
+		cap := int(binary.LittleEndian.Uint32(record[8:12]))
+		hdr := int(binary.LittleEndian.Uint16(record[16:18]))
+		if validBPFRecord(len(record), hdr, cap) {
+			align := bpfWordAlign(hdr + cap)
+			if align <= len(record) {
+				return hdr, cap, align, true
+			}
+		}
 	}
-	// BPF prepends a header; skip it (bpf_hdr is typically 18 bytes aligned).
-	// For simplicity we skip the standard 18-byte BPF header.
-	const bpfHdrLen = 18
-	if n < bpfHdrLen {
-		return 0, nil
+
+	// 64-bit timeval variant fallback:
+	// caplen @ +16, datalen @ +20, hdrlen @ +24.
+	if len(record) >= 26 {
+		cap := int(binary.LittleEndian.Uint32(record[16:20]))
+		hdr := int(binary.LittleEndian.Uint16(record[24:26]))
+		if validBPFRecord(len(record), hdr, cap) {
+			align := bpfWordAlign(hdr + cap)
+			if align <= len(record) {
+				return hdr, cap, align, true
+			}
+		}
 	}
-	c.bufStart = bpfHdrLen
-	c.bufEnd = n
-	copied := copy(b, c.buf[c.bufStart:c.bufEnd])
-	c.bufStart += copied
-	return copied, nil
+
+	return 0, 0, 0, false
+}
+
+func validBPFRecord(total, hdr, cap int) bool {
+	if hdr <= 0 || cap <= 0 {
+		return false
+	}
+	if hdr > total {
+		return false
+	}
+	if cap > total-hdr {
+		return false
+	}
+	return true
+}
+
+func bpfWordAlign(n int) int {
+	const alignment = 4
+	return (n + (alignment - 1)) &^ (alignment - 1)
 }
 
 func (c *bpfConn) Write(b []byte) (int, error) {
