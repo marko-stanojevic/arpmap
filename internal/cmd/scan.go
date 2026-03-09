@@ -43,14 +43,19 @@ func runScan(cmd *cobra.Command, args []string) error {
 		Interfaces: []output.InterfaceResult{},
 	}
 
+	failedInterfaces := 0
+	successfulInterfaces := 0
+
 	for _, ifc := range interfaces {
 		fmt.Fprintf(os.Stderr, "[*] Scanning %s (%s) ...\n", ifc.Name, ifc.CIDRs)
 
 		devices, err := arp.Scan(ifc)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "[!] %s: %v\n", ifc.Name, err)
+			failedInterfaces++
 			continue
 		}
+		successfulInterfaces++
 
 		ifaceResult := output.InterfaceResult{
 			Interface: ifc.Name,
@@ -60,6 +65,11 @@ func runScan(cmd *cobra.Command, args []string) error {
 		result.Interfaces = append(result.Interfaces, ifaceResult)
 
 		fmt.Fprintf(os.Stderr, "[+] %s: found %d device(s)\n", ifc.Name, len(devices))
+	}
+
+	if successfulInterfaces == 0 {
+		fmt.Fprintf(os.Stderr, "[!] All %d interface scan(s) failed; no output file was created.\n", failedInterfaces)
+		return fmt.Errorf("all interface scans failed")
 	}
 
 	data, err := json.MarshalIndent(result, "", "  ")
