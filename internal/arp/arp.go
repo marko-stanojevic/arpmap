@@ -68,14 +68,33 @@ func buildEthernetFrame(src, dst net.HardwareAddr, payload []byte) []byte {
 	return frame
 }
 
-// Scan sends ARP requests to every host in every subnet of the given interface
-// and returns the set of responding devices.
-func Scan(info iface.Info) ([]output.Device, error) {
-	return ScanWithDebug(info, false)
+// ScanConfig holds options for the Scan operation.
+type ScanConfig struct {
+	Debug bool
 }
 
-// ScanWithDebug is like Scan but accepts a debug flag to enable diagnostic logging.
-func ScanWithDebug(info iface.Info, debug bool) ([]output.Device, error) {
+// ScanOption is a functional option for configuring Scan.
+type ScanOption func(*ScanConfig)
+
+// WithDebug enables or disables debug logging for scanning operations.
+func WithDebug(enabled bool) ScanOption {
+	return func(cfg *ScanConfig) {
+		cfg.Debug = enabled
+	}
+}
+
+// Scan sends ARP requests to every host in every subnet of the given interface
+// and returns the set of responding devices.
+func Scan(info iface.Info, opts ...ScanOption) ([]output.Device, error) {
+	cfg := &ScanConfig{Debug: false}
+	for _, opt := range opts {
+		opt(cfg)
+	}
+	return scan(info, cfg.Debug)
+}
+
+// scan performs the actual ARP scanning with the given debug flag.
+func scan(info iface.Info, debug bool) ([]output.Device, error) {
 	scanStart := time.Now()
 	if debug {
 		fmt.Fprintf(os.Stderr, "[DEBUG] === Scan started ===\n")
@@ -201,13 +220,17 @@ func ScanWithDebug(info iface.Info, debug bool) ([]output.Device, error) {
 
 // FindFree scans the subnet and returns IP addresses that did NOT respond.
 // If max > 0 the result is capped at max addresses.
-func FindFree(info iface.Info, max int) ([]string, error) {
-	return FindFreeWithDebug(info, max, false)
+func FindFree(info iface.Info, max int, opts ...ScanOption) ([]string, error) {
+	cfg := &ScanConfig{Debug: false}
+	for _, opt := range opts {
+		opt(cfg)
+	}
+	return findFree(info, max, cfg.Debug)
 }
 
-// FindFreeWithDebug is like FindFree but accepts a debug flag to enable diagnostic logging.
-func FindFreeWithDebug(info iface.Info, max int, debug bool) ([]string, error) {
-	devices, err := ScanWithDebug(info, debug)
+// findFree performs the actual free IP lookup with the given debug flag.
+func findFree(info iface.Info, max int, debug bool) ([]string, error) {
+	devices, err := scan(info, debug)
 	if err != nil {
 		return nil, err
 	}
@@ -318,7 +341,7 @@ func sendARP(conn net.Conn, ifc *net.Interface, target net.IP, debug bool) {
 	}
 
 	if debug {
-		fmt.Fprintf(os.Stderr, "[DEBUG] ARP request: who-has %s tell %s (packet size: %d bytes)\n", target, srcIP, len(frame))
+		fmt.Fprintf(os.Stderr, "[DEBUG] ARP request: who-has %s tell %s (from %s) (packet size: %d bytes)\n", target, srcIP, srcMAC.String(), len(frame))
 	}
 }
 

@@ -51,7 +51,7 @@ func runScan(cmd *cobra.Command, args []string) error {
 	for _, ifc := range interfaces {
 		fmt.Fprintf(os.Stderr, "[*] Scanning %s (%s) ...\n", ifc.Name, ifc.CIDRs)
 
-		devices, err := arp.ScanWithDebug(ifc, scanDebug)
+		devices, err := arp.Scan(ifc, arp.WithDebug(scanDebug))
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "[!] %s: %v\n", ifc.Name, err)
 			failedInterfaces++

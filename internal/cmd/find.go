@@ -53,7 +53,7 @@ func runFind(cmd *cobra.Command, args []string) error {
 	for _, ifc := range interfaces {
 		fmt.Fprintf(os.Stderr, "[*] Scanning %s (%s) ...\n", ifc.Name, ifc.CIDRs)
 
-		freeIPs, err := arp.FindFreeWithDebug(ifc, findCount, findDebug)
+		freeIPs, err := arp.FindFree(ifc, findCount, arp.WithDebug(findDebug))
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "[!] %s: %v\n", ifc.Name, err)
 			failedInterfaces++
