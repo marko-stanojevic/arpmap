@@ -1,176 +1,112 @@
-# ⬡ hostr — Live System Information TUI
+# arpmap
 
-> A hobby terminal UI application demonstrating the power of TUIs for viewing real-time system metrics, built with Go and Bubble Tea
+`arpmap` is a Go CLI for ARP-based host discovery on local IPv4 subnets.
 
-[![CI](https://github.com/marko-stanojevic/hostr/actions/workflows/ci.yml/badge.svg)](https://github.com/marko-stanojevic/hostr/actions/workflows/ci.yml)
-[![Go Version](https://img.shields.io/github/go-mod/go-version/marko-stanojevic/hostr)](go.mod)
-[![License](https://img.shields.io/github/license/marko-stanojevic/hostr)](LICENSE)
+It provides two commands:
+- `scan`: discovers responding hosts and writes `IP -> MAC` mappings to JSON.
+- `find`: reports candidate free IP addresses (addresses that did not respond).
 
----
+## Requirements
 
-## 💡 About hostr
+- Go 1.22+
+- Linux/macOS with permissions for raw sockets (`root` or `CAP_NET_RAW`)
 
-hostr is a hobby project created to demonstrate the power and elegance of terminal user interfaces. It's a fast, interactive system information viewer built with Go and Bubble Tea.
-
-**Why a TUI?**  
-TUIs are lightweight, responsive, and work anywhere you have a terminal. No browser. No resource overhead. This project showcases how modern TUI frameworks make it easy to build beautiful, functional terminal applications.
-
----
-
-## 🚀 Installation
-
-### Pre-built Binaries
-
-Download the latest release for your platform from [GitHub Releases](https://github.com/marko-stanojevic/hostr/releases).
+## Quick Start
 
 ```bash
-# macOS (Apple Silicon)
-curl -L https://github.com/marko-stanojevic/hostr/releases/download/v1.0.0/hostr_darwin_arm64.tar.gz | tar xz
-./sysinfo
+git clone https://github.com/marko-stanojevic/arpmap.git
+cd arpmap
 
-# Linux (x86_64)
-curl -L https://github.com/marko-stanojevic/hostr/releases/download/v1.0.0/hostr_linux_amd64.tar.gz | tar xz
-./sysinfo
+# show CLI help
+go run ./cmd --help
 
-# Windows (PowerShell)
-$url = "https://github.com/marko-stanojevic/hostr/releases/download/v1.0.0/hostr_windows_amd64.zip"
-Invoke-WebRequest -Uri $url -OutFile hostr.zip
-Expand-Archive hostr.zip
-.\sysinfo.exe
+# scan all eligible interfaces
+sudo go run ./cmd scan --output devices.json
+
+# find free IPs (all interfaces, no limit)
+sudo go run ./cmd find --output free_ips.json
 ```
 
-### From Source
+## Commands
 
-Requires **Go 1.22+**.
+### `scan`
 
 ```bash
-git clone https://github.com/marko-stanojevic/hostr.git
-cd hostr
-go run ./cmd/sysinfo
+arpmap scan --interface eth0 --output devices.json
+arpmap scan --output devices.json
 ```
 
-## 🖥️ Using hostr
+Output schema:
 
-Launch the app with:
+```json
+{
+	"interfaces": [
+		{
+			"interface": "eth0",
+			"subnet": "192.168.1.0/24",
+			"devices": [
+				{ "ip": "192.168.1.10", "mac": "aa:bb:cc:dd:ee:ff" }
+			]
+		}
+	]
+}
+```
+
+### `find`
 
 ```bash
-go run ./cmd/sysinfo
+arpmap find --interface eth0 --count 10 --output free_ips.json
+arpmap find --output free_ips.json
 ```
 
-The TUI displays live system metrics organized by category:
+Output schema:
 
-```
-⬡  System Info
-
-╭─ System ──────────────────────────────╮
-│  Hostname        myhost               │
-│  OS / Arch       linux / amd64        │
-│  Go Version      go1.22.3             │
-│  Uptime          2d 4h 12m            │
-╰───────────────────────────────────────╯
-╭─ CPU ─────────────────────────────────╮
-│  Model           Intel Core i7-...    │
-│  Cores           8                    │
-│  Usage           ████████░░░░  42.3%  │
-╰───────────────────────────────────────╯
-╭─ Memory ──────────────────────────────╮
-│  Total           15.5 GB              │
-│  Used            8.2 GB               │
-│  Usage           █████████░░░  53.1%  │
-╰───────────────────────────────────────╯
-╭─ Disk ────────────────────────────────╮
-│  Total           512.0 GB             │
-│  Used            210.3 GB             │
-│  Usage           █████░░░░░░░  41.1%  │
-╰───────────────────────────────────────╯
-Updated 14:22:07  •  r refresh  •  q quit
+```json
+{
+	"interfaces": [
+		{
+			"interface": "eth0",
+			"subnet": "192.168.1.0/24",
+			"free_ips": ["192.168.1.20", "192.168.1.21"]
+		}
+	]
+}
 ```
 
-**Keyboard Shortcuts:**
-- `r` — refresh metrics now
-- `q` — quit
+## Build and Verify
 
----
-
-## ✨ Features
-
-- **Live System Metrics** — CPU, memory, disk, hostname, OS, uptime, Go version
-- **Auto-refresh** — updates every 3 seconds with manual refresh option
-- **Cross-platform** — Linux, macOS, and Windows (no dependencies)
-- **Fast & Lightweight** — Go binary, minimal resource usage
-- **Modern TUI Demo** — showcases Bubble Tea framework capabilities with real-world use case
-
-### Tech Stack
-
-- [Bubble Tea](https://github.com/charmbracelet/bubbletea) — TUI framework
-- [Bubbles](https://github.com/charmbracelet/bubbles) — spinner and other UI components
-- [Lipgloss](https://github.com/charmbracelet/lipgloss) — terminal styling
-- [gopsutil](https://github.com/shirou/gopsutil) — system metric collection
-- [GoReleaser](https://goreleaser.com/) — cross-platform binary builds
-- [GitHub Actions](https://github.com/features/actions) — CI/CD automation
-
----
-
-## 📂 Project Structure
-
+```bash
+go mod tidy
+go build ./...
+go vet ./...
+go test ./... -v -race -cover
 ```
-hostr/
+
+## Project Layout
+
+```text
+arpmap/
 ├── cmd/
-│   └── sysinfo/
-│       └── main.go              // Entry point
+│   └── main.go
 ├── internal/
+│   ├── arp/
 │   ├── cmd/
-│   │   └── registry.go          // Command registry (extensible architecture)
-│   ├── sysinfo/
-│   │   ├── collector.go         // Collector interface for abstraction
-│   │   ├── sysinfo.go           // Metric collection via gopsutil
-│   │   └── sysinfo_test.go
-│   └── ui/
-│       ├── model.go             // Bubble Tea model, update, view
-│       ├── model_test.go
-│       └── styles.go            // Centralized style definitions
+│   ├── iface/
+│   └── output/
 ├── docs/
-│   ├── getting-started.md
-│   ├── development.md
-│   ├── ci-cd.md
-│   └── architecture.md
-├── .devcontainer/
-│   └── devcontainer.json
 ├── .github/
-│   ├── actions/                 // Composite actions (go-lint, go-test, go-build, go-release)
-│   ├── workflows/               // CI & release pipelines
-│   └── copilot-instructions.md
-├── .vscode/                     // Editor settings & tasks
-├── .goreleaser.yml
-├── .golangci.yml
 ├── AGENTS.md
 ├── CONTRIBUTING.md
 └── go.mod
 ```
 
----
+## Documentation
 
-## 📖 Documentation
+- [Getting Started](docs/getting-started.md)
+- [Development Guide](docs/development.md)
+- [Architecture](docs/architecture.md)
+- [CI/CD & Release Guide](docs/ci-cd.md)
 
-For developers:
+## Contributing
 
-- 🚀 [Getting Started](docs/getting-started.md) — setup and local development
-- 🛠️ [Development Guide](docs/development.md) — project structure, conventions, testing
-- 🔄 [CI/CD & Release Guide](docs/ci-cd.md) — GitHub Actions, versioning, releases
-- 🏗️ [Architecture](docs/architecture.md) — design patterns and extensibility
-
----
-
-## 🤝 Contributing
-
-Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
-
----
-
-## 📄 License
-
-This project is licensed under the MIT License — see [LICENSE](LICENSE) for details.
-
----
-
-Built with ❤️ using [Bubble Tea](https://github.com/charmbracelet/bubbletea) by Charm.
+See [CONTRIBUTING.md](CONTRIBUTING.md).

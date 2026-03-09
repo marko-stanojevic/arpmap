@@ -2,47 +2,48 @@
 
 ## Workflows
 
-| Workflow | Trigger | Purpose |
-|----------|---------|---------|
-| `ci.yml` | Push to `main`, PRs | Lint → Test (3 OS) → Build |
-| `release.yml` | Push `v*.*.*` tag | Cross-compile + GitHub Release |
+### `ci.yml`
 
-## Creating a Release
+Triggers:
+- push to `main` (when Go source/module files change)
+- pull requests to `main`, `release/**`, `hotfix/**`
+- manual dispatch
+
+Pipeline:
+1. `lint`: runs `.github/actions/go-lint`
+2. `test`: runs `.github/actions/go-test` on Linux, macOS, and Windows
+3. `build`: runs `.github/actions/go-build` and uploads debug artifacts
+
+### `release.yml`
+
+Trigger:
+- manual dispatch (`workflow_dispatch`)
+
+Pipeline:
+1. run `.github/actions/go-release`
+2. create/push release tag if missing
+3. generate release notes
+4. publish GitHub release with `dist/*` artifacts
+
+## Local Validation Commands
 
 ```bash
-# Bump and tag
-git tag v1.2.3
-git push origin v1.2.3
+go mod tidy
+go build ./...
+go vet ./...
+go test ./... -v -race -cover
+golangci-lint run ./...
 ```
-
-GoReleaser will automatically:
-- Cross-compile for Linux, macOS, and Windows (amd64 + arm64)
-- Create archives (`.tar.gz` / `.zip`)
-- Generate a `checksums.txt`
-- Publish a GitHub Release with all artifacts
 
 ## Versioning
 
-Tags follow [Semantic Versioning](https://semver.org/): `vMAJOR.MINOR.PATCH`.
-
-Commit message conventions for the changelog:
-
-| Prefix | Changelog section |
-|--------|------------------|
-| `feat:` | Features |
-| `fix:` | Bug Fixes |
-| `feat!:` / `fix!:` | Breaking Changes |
-| `docs:`, `chore:`, `test:` | Excluded from changelog |
+Use semantic tags (`vMAJOR.MINOR.PATCH`) and conventional commits for clearer generated notes.
 
 ## Composite Actions
 
 | Action | Purpose |
 |--------|---------|
-| `go-lint` | Runs `golangci-lint` |
-| `go-test` | Runs `go test ./... -race -cover` |
-| `go-build` | Debug build or cross-compile release binaries |
-| `go-release` | Runs GoReleaser to publish a GitHub Release |
-
-## Dependency Updates
-
-Dependabot is configured to open weekly PRs for both Go module and GitHub Actions updates.
+| `go-lint` | Run `golangci-lint` |
+| `go-test` | Run tests with race detector and coverage |
+| `go-build` | Build binaries/artifacts |
+| `go-release` | Run release build and publish assets |

@@ -1,35 +1,38 @@
 # GitHub Copilot Instructions
 
-This repository is hostr, a hobby Go TUI application demonstrating system information display with [Bubble Tea](https://github.com/charmbracelet/bubbletea).
+This repository is `arpmap`, a Go CLI for ARP-based host discovery and free-IP discovery on local IPv4 subnets.
 
 ## Stack
 
 - **Language**: Go 1.22+
-- **TUI framework**: Bubble Tea (bubbletea) + Bubbles + Lipgloss
-- **System metrics**: gopsutil/v3
+- **CLI framework**: Cobra
+- **Networking**: raw sockets (`AF_PACKET` on Linux, BPF on macOS)
 - **Linter**: golangci-lint
 - **Release**: GoReleaser
 
 ## Key Conventions
 
 - Commands (`cmd/`) are thin wires; all logic lives in `internal/`
-- Use `tea.Cmd` for all side effects (I/O, timers, data fetching)
+- Keep command definitions and flags in `internal/cmd`
+- Keep ARP internals and packet/socket logic in `internal/arp`
+- Keep JSON DTOs in `internal/output`
 - Wrap errors with `fmt.Errorf("context: %w", err)` at every boundary
 - Every exported symbol needs a godoc comment
 - Tests live next to the code they test (`foo_test.go` in the same directory)
 
-## When Adding a New TUI Command
+## When Adding a New CLI Subcommand
 
-1. Create `cmd/<name>/main.go`
-2. Add a model in `internal/ui/<name>/model.go`
-3. Add a corresponding `model_test.go`
-4. Wire a new entry in `.goreleaser.yml` under `builds:`
+1. Add `internal/cmd/<name>.go`
+2. Define a `cobra.Command` and required flags
+3. Implement `RunE` with wrapped errors
+4. Register it in `internal/cmd/cmd.go`
+5. Add tests in `internal/cmd` and/or relevant internal package
 
-## When Adding New Metrics
+## When Changing Scan/Find Output
 
-1. Add the collector function in `internal/sysinfo/sysinfo.go`
-2. Add fields to the `Info` struct
-3. Update `internal/ui/model.go` to display the new fields
-4. Write tests in `internal/sysinfo/sysinfo_test.go`
+1. Update structures in `internal/output/output.go`
+2. Populate new fields in `internal/cmd/scan.go` and/or `internal/cmd/find.go`
+3. Update docs examples in `README.md` and `docs/`
+4. Add tests to validate output shape and behavior
 
 Refer to `AGENTS.md` for full coding guidelines.
