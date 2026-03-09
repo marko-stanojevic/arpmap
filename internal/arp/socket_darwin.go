@@ -15,6 +15,7 @@ import (
 func openRawConn(ifc *net.Interface) (net.Conn, error) {
 	var fd int
 	var err error
+	var lastErr error
 
 	// Open the first available BPF device.
 	for i := 0; i < 256; i++ {
@@ -23,8 +24,24 @@ func openRawConn(ifc *net.Interface) (net.Conn, error) {
 		if err == nil {
 			break
 		}
+
+		switch err {
+		case syscall.EBUSY:
+			lastErr = fmt.Errorf("%s is busy", name)
+			continue
+		case syscall.EACCES, syscall.EPERM:
+			return nil, fmt.Errorf("opening %s: %w (run as root or grant access to /dev/bpf*)", name, err)
+		case syscall.ENOENT:
+			lastErr = fmt.Errorf("%s does not exist", name)
+			continue
+		default:
+			lastErr = fmt.Errorf("opening %s: %w", name, err)
+		}
 	}
 	if err != nil {
+		if lastErr != nil {
+			return nil, fmt.Errorf("no BPF device available: %w", lastErr)
+		}
 		return nil, fmt.Errorf("no BPF device available: %w", err)
 	}
 
@@ -47,7 +64,10 @@ func openRawConn(ifc *net.Interface) (net.Conn, error) {
 
 	// Set BPF filter for ARP frames only.
 	// BPF instructions: ldh [12], jeq 0x0806 pass, ret 65535, ret 0
-	type bpfInsn struct{ Code, Jt, Jf uint16; K uint32 }
+	type bpfInsn struct {
+		Code, Jt, Jf uint16
+		K            uint32
+	}
 	filter := []bpfInsn{
 		{0x28, 0, 0, 12},
 		{0x15, 0, 1, 0x0806},
@@ -112,9 +132,9 @@ func (c *bpfConn) Write(b []byte) (int, error) {
 	return syscall.Write(c.fd, b)
 }
 
-func (c *bpfConn) Close() error               { return syscall.Close(c.fd) }
-func (c *bpfConn) LocalAddr() net.Addr        { return &net.IPAddr{} }
-func (c *bpfConn) RemoteAddr() net.Addr       { return &net.IPAddr{} }
+func (c *bpfConn) Close() error                       { return syscall.Close(c.fd) }
+func (c *bpfConn) LocalAddr() net.Addr                { return &net.IPAddr{} }
+func (c *bpfConn) RemoteAddr() net.Addr               { return &net.IPAddr{} }
 func (c *bpfConn) SetDeadline(t time.Time) error      { c.deadline = t; return nil }
 func (c *bpfConn) SetReadDeadline(t time.Time) error  { c.deadline = t; return nil }
 func (c *bpfConn) SetWriteDeadline(_ time.Time) error { return nil }
