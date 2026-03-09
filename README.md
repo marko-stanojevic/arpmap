@@ -1,5 +1,12 @@
 # arpmap
 
+[![CI](https://github.com/marko-stanojevic/arpmap/actions/workflows/ci.yml/badge.svg)](https://github.com/marko-stanojevic/arpmap/actions/workflows/ci.yml)
+[![Release](https://github.com/marko-stanojevic/arpmap/actions/workflows/release.yml/badge.svg)](https://github.com/marko-stanojevic/arpmap/actions/workflows/release.yml)
+[![Latest Release](https://img.shields.io/github/v/release/marko-stanojevic/arpmap?display_name=tag)](https://github.com/marko-stanojevic/arpmap/releases/latest)
+[![Coverage](https://img.shields.io/badge/Coverage-go%20test%20--race%20--cover-brightgreen)](https://github.com/marko-stanojevic/arpmap/actions/workflows/ci.yml)
+[![Go Version](https://img.shields.io/badge/Go-1.22%2B-00ADD8?logo=go)](https://go.dev/)
+[![OS Support](https://img.shields.io/badge/OS-Linux%20%7C%20macOS%20%7C%20Windows-blue)](#platform-support)
+
 `arpmap` is a Go CLI for ARP-based host discovery on local IPv4 subnets.
 
 It provides two commands:
@@ -19,6 +26,12 @@ It provides two commands:
 - Go 1.22+
 - Linux/macOS with permissions for raw sockets (`root` or `CAP_NET_RAW`)
 - Windows builds/tests are supported; raw ARP scan/find execution is currently unsupported on Windows.
+
+## Platform Support
+
+- Linux: full support (scan/find with raw sockets)
+- macOS: full support (scan/find with BPF backend)
+- Windows: build/test support; scan/find runtime is currently unsupported
 
 ## Quick Start
 
