@@ -18,7 +18,8 @@ internal/
 ├── arp/
 │   ├── arp.go              # ARP packet crafting, scan logic, free-IP logic
 │   ├── socket_linux.go     # AF_PACKET implementation
-│   └── socket_darwin.go    # BPF implementation
+│   ├── socket_darwin.go    # BPF implementation
+│   └── socket_windows.go   # explicit unsupported-runtime stub
 └── output/
     └── output.go           # JSON response DTOs
 ```
@@ -43,12 +44,19 @@ internal/
 Raw socket code is split by build tags:
 - Linux: `AF_PACKET`
 - macOS: BPF
+- Windows: compile-time support with explicit unsupported-runtime error path
 
 This keeps platform details isolated and avoids branching inside core scanner logic.
 
 ### Bounded concurrency
 
 ARP requests are sent with a fixed worker limit to reduce the chance of file descriptor exhaustion and excessive network burst load.
+
+Current defaults in `internal/arp/arp.go`:
+
+- worker pool: `256`
+- post-send reply window: `2s`
+- read deadline poll interval: `200ms`
 
 ### Best-effort network discovery
 
