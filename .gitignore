@@ -1,0 +1,28 @@
+# Binaries
+dist/
+bin/
+*.exe
+*.out
+
+# Test coverage
+coverage.out
+coverage.html
+
+# Go workspace
+go.work
+go.work.sum
+
+# IDE
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# GoReleaser
+/dist
+
+# Local tooling
+.tools/

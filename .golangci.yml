@@ -1,0 +1,29 @@
+linters:
+  enable:
+    - errcheck
+    - gosimple
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - gofmt
+    - goimports
+    - misspell
+    - revive
+    - gocritic
+    - godot
+
+linters-settings:
+  goimports:
+    local-prefixes: github.com/marko-stanojevic/hostr
+  revive:
+    rules:
+      - name: exported
+        arguments:
+          - "checkPrivateReceivers"
+
+issues:
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - errcheck
