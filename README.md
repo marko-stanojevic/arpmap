@@ -1,20 +1,43 @@
-# arpmap
+<h1 align="center">arpmap</h1>
 
-[![CI](https://github.com/marko-stanojevic/arpmap/actions/workflows/ci.yml/badge.svg)](https://github.com/marko-stanojevic/arpmap/actions/workflows/ci.yml)
-[![Release](https://github.com/marko-stanojevic/arpmap/actions/workflows/release.yml/badge.svg)](https://github.com/marko-stanojevic/arpmap/actions/workflows/release.yml)
-[![Latest Release](https://img.shields.io/github/v/release/marko-stanojevic/arpmap?display_name=tag)](https://github.com/marko-stanojevic/arpmap/releases/latest)
-[![Coverage](https://img.shields.io/badge/Coverage-go%20test%20--race%20--cover-brightgreen)](https://github.com/marko-stanojevic/arpmap/actions/workflows/ci.yml)
-[![Go Version](https://img.shields.io/badge/Go-1.22%2B-00ADD8?logo=go)](https://go.dev/)
-[![OS Support](https://img.shields.io/badge/OS-Linux%20%7C%20macOS%20%7C%20Windows-blue)](#platform-support)
+<p align="center"><strong>Cross-platform ARP network scanner for discovering active devices and finding free IP addresses on local IPv4 subnets.</strong></p>
 
-![arpmap demo](docs/assets/arpmap-demo.gif)
+<p align="center">
+  <a href="https://github.com/marko-stanojevic/arpmap/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/marko-stanojevic/arpmap/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/marko-stanojevic/arpmap/actions/workflows/release.yml"><img alt="Release" src="https://github.com/marko-stanojevic/arpmap/actions/workflows/release.yml/badge.svg"></a>
+  <a href="https://github.com/marko-stanojevic/arpmap/releases/latest"><img alt="Latest Release" src="https://img.shields.io/github/v/release/marko-stanojevic/arpmap?display_name=tag"></a>
+  <a href="https://github.com/marko-stanojevic/arpmap/actions/workflows/ci.yml"><img alt="Coverage" src="https://img.shields.io/badge/Coverage-go%20test%20--race%20--cover-brightgreen"></a>
+  <a href="https://go.dev/"><img alt="Go Version" src="https://img.shields.io/badge/Go-1.22%2B-00ADD8?logo=go"></a>
+  <a href="#platform-support"><img alt="OS Support" src="https://img.shields.io/badge/OS-Linux%20%7C%20macOS%20%7C%20Windows-blue"></a>
+</p>
 
-`arpmap` is a cross-platform CLI for ARP-based host discovery on local IPv4 subnets.
+<p align="center">
+  <a href="#quick-start">Quick Start</a> •
+  <a href="#commands">Commands</a> •
+  <a href="#installation">Installation</a> •
+  <a href="#platform-support">Platform Support</a> •
+  <a href="#documentation">Documentation</a>
+</p>
 
-It provides two primary workflows:
+<p align="center">
+  <img src="docs/assets/arpmap-demo.gif" alt="arpmap demo">
+</p>
 
-- `scan`: discover responding hosts and write `IP -> MAC` mappings to JSON.
-- `find`: identify candidate free IP addresses that did not respond to ARP probes.
+> Built for fast Layer-2 visibility on networks where ping and higher-layer probes are filtered, rate-limited, or unavailable.
+
+`arpmap` is a focused CLI for local IPv4 discovery and address planning.
+
+| Workflow | Purpose | Output |
+| --- | --- | --- |
+| `scan` | Discover responding hosts on attached subnets | JSON with `IP -> MAC` mappings |
+| `find` | Identify candidate free addresses that did not respond to ARP | JSON with available IPv4 addresses |
+
+## Highlights
+
+| Fast visibility | Automation-friendly | Cross-platform |
+| --- | --- | --- |
+| Scans every IPv4 host in each eligible local subnet | Writes structured JSON for scripts and tooling | Native support for Linux, macOS, and Windows |
+| Useful when ICMP is blocked or unreliable | Debug output includes timing and response metrics | Windows support uses `SendARP()` without CGO |
 
 ## About
 
@@ -40,32 +63,36 @@ It provides two primary workflows:
 
 ## Installation
 
-### Release binaries
+Pick the release artifact that matches your platform from the GitHub Releases page.
 
-Download the latest archive for your platform from the GitHub Releases page, extract it, and place `arpmap` somewhere on your `PATH`.
-
-Example for Linux/macOS:
-
-```bash
-tar -xzf arpmap_X.Y.Z_linux_amd64.tar.gz
+<table>
+  <tr>
+    <td valign="top" width="33%">
+      <strong>Linux / macOS</strong><br>
+      Archive install for direct use on your <code>PATH</code>.
+      <pre lang="bash">tar -xzf arpmap_X.Y.Z_linux_amd64.tar.gz
 sudo install arpmap /usr/local/bin/arpmap
-arpmap --help
-```
+arpmap --help</pre>
+    </td>
+    <td valign="top" width="33%">
+      <strong>Windows</strong><br>
+      Zip archive install for PowerShell environments.
+      <pre lang="powershell">Expand-Archive .\arpmap_X.Y.Z_windows_amd64.zip -DestinationPath .\arpmap
+.\arpmap\arpmap.exe --help</pre>
+    </td>
+    <td valign="top" width="33%">
+      <strong>Ubuntu / Debian</strong><br>
+      Native <code>.deb</code> package for apt-based systems.
+      <pre lang="bash">wget https://github.com/marko-stanojevic/arpmap/releases/download/vX.Y.Z/arpmap_X.Y.Z_linux_amd64.deb
+sudo apt install ./arpmap_X.Y.Z_linux_amd64.deb</pre>
+    </td>
+  </tr>
+</table>
 
-Example for Windows PowerShell:
-
-```powershell
-Expand-Archive .\arpmap_X.Y.Z_windows_amd64.zip -DestinationPath .\arpmap
-.\arpmap\arpmap.exe --help
-```
-
-### Ubuntu and Debian
-
-Install from a released `.deb` package:
+After installation, verify the CLI is available:
 
 ```bash
-wget https://github.com/marko-stanojevic/arpmap/releases/download/vX.Y.Z/arpmap_X.Y.Z_linux_amd64.deb
-sudo apt install ./arpmap_X.Y.Z_linux_amd64.deb
+arpmap --help
 ```
 
 ## Quick Start
@@ -190,16 +217,25 @@ Sample output:
 
 ## Debug Output
 
-`--debug` is intended for operator troubleshooting and performance tuning. It prints scan settings, timing summaries, response counts, and sampled response/no-response IP addresses.
+`--debug` is intended for operator troubleshooting and performance tuning.
+
+| Debug signal | What it tells you |
+| --- | --- |
+| Scan settings | Interface, subnet, worker count, attempts, and target volume |
+| Timing summaries | Overall duration and backend read behavior |
+| Response metrics | Responded targets, dispatch totals, and response rate |
+| Sample addresses | A few responding and non-responding IPs for quick inspection |
 
 Example:
 
 ```text
-[INFO] Scanning interface Wi-Fi (192.168.1.0/24)
-[DEBUG] workers=64 attempts=1 targets=254
-[DEBUG] sample responding IPs: 192.168.1.1, 192.168.1.10, 192.168.1.20
-[DEBUG] sample non-responding IPs: 192.168.1.101, 192.168.1.102, 192.168.1.103
-[DEBUG] total_duration=2.14s responses=18 no_responses=236
+[INFO] Starting ARP scan on interface=eth0 subnets=192.168.1.0/24
+[DEBUG] Scan parameters | targets=254 attempts=1
+[DEBUG] Reader summary | reads=23 timeouts=11 unique_devices=18
+[DEBUG] Scan completed | duration=2.14s dispatched=254 total_targets=254
+[DEBUG] Response metrics | responded=18 dispatched=254 response_rate=7.1%
+[DEBUG] Sample IP addresses responding to ARP requests: [192.168.1.1 192.168.1.10 192.168.1.44]
+[DEBUG] Sample IP addresses with no ARP response: [192.168.1.120 192.168.1.121 192.168.1.122]
 ```
 
 ## Platform Implementation
@@ -214,20 +250,21 @@ Backends by platform:
 
 `arpmap` favors fast fan-out with predictable completion behavior.
 
-- Default workers:
-  - Linux/macOS: `256`
-  - Windows: `64`
-- Default probe attempts: `1`
-- Reply collection window for raw-socket backends: `2s` after probe dispatch completes
-- Read polling deadline for raw-socket backends: `200ms`
-- Retry spacing between repeated probes: `150ms`
+| Setting | Default |
+| --- | --- |
+| Workers on Linux/macOS | `256` |
+| Workers on Windows | `64` |
+| Probe attempts | `1` |
+| Reply collection window | `2s` after dispatch completes |
+| Read polling deadline | `200ms` |
+| Retry spacing | `150ms` |
 
-Practical implication:
+Practical guidance:
 
-- Linux/macOS `/24` networks are typically handled in a single dispatch wave with default settings.
-- Windows throughput depends more directly on `SendARP()` latency and worker count.
-- Increasing `--workers` can reduce wall-clock time, but setting it too high may reduce stability on slower networks or hosts.
-- Increasing `--attempts` may improve discovery on noisy networks at the cost of extra runtime.
+- Linux/macOS `/24` networks are usually handled in a single dispatch wave with the default worker count.
+- Windows throughput depends more directly on `SendARP()` latency and the configured worker count.
+- Increasing `--workers` can reduce runtime, but very high values may reduce stability on slower networks or hosts.
+- Increasing `--attempts` can improve discovery on noisy networks, with a direct runtime tradeoff.
 
 To measure speed on your environment:
 
@@ -244,9 +281,10 @@ time sudo arpmap scan --interface eth0 --output devices.json
 
 - [Getting Started](docs/getting-started.md)
 - [Architecture](docs/architecture.md)
-- [CI/CD & Release Guide](docs/ci-cd.md)
 - [Contributing](CONTRIBUTING.md)
 
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+Built with ❤️ by Marko Stanojevic
