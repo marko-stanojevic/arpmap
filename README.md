@@ -1,4 +1,4 @@
-<h1 align="center">arpmap • Know Your Network</h1>
+<h1 align="center">arpmap</h1>
 
 <p align="center"><strong>Cross-platform ARP network scanner and IP discovery CLI for finding live hosts, MAC addresses, and candidate free IPv4 addresses on local subnets across Linux, macOS, and Windows.</strong></p>
 
