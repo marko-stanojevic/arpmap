@@ -24,10 +24,16 @@ import (
 const (
 	// workerCount limits concurrent ARP senders to avoid fd exhaustion.
 	workerCount = 256
+	// debugSampleIPLogCap limits the number of sample IPs printed in debug output.
+	debugSampleIPLogCap = 3
+	// defaultProbeAttempts is the number of ARP probes sent per target by default.
+	defaultProbeAttempts = 1
 	// probeTimeout is how long we wait for lingering ARP replies after sending.
 	probeTimeout = 2 * time.Second
 	// readDeadline is the rolling per-read timeout on the raw socket.
 	readDeadline = 200 * time.Millisecond
+	// probeRetryDelay spaces repeated probes for the same target.
+	probeRetryDelay = 150 * time.Millisecond
 )
 
 const etherTypeARP = 0x0806
@@ -72,6 +78,7 @@ func buildEthernetFrame(src, dst net.HardwareAddr, payload []byte) []byte {
 type ScanConfig struct {
 	Debug           bool
 	Workers         int
+	Attempts        int
 	StopAtFreeCount int // Stop scanning when this many free IPs are found (0 = scan all)
 }
 
@@ -93,6 +100,14 @@ func WithWorkers(workers int) ScanOption {
 	}
 }
 
+// WithAttempts sets the number of ARP probe attempts per target.
+// Values <= 0 use the default (1).
+func WithAttempts(attempts int) ScanOption {
+	return func(cfg *ScanConfig) {
+		cfg.Attempts = attempts
+	}
+}
+
 // WithStopAtFreeCount enables early exit when finding N free IPs.
 // When N > 0, the scan stops as soon as N free (non-responding) IPs are identified.
 func WithStopAtFreeCount(n int) ScanOption {
@@ -104,7 +119,7 @@ func WithStopAtFreeCount(n int) ScanOption {
 // Scan sends ARP requests to every host in every subnet of the given interface
 // and returns the set of responding devices.
 func Scan(info iface.Info, opts ...ScanOption) ([]output.Device, error) {
-	cfg := &ScanConfig{Debug: false, Workers: 0}
+	cfg := &ScanConfig{Debug: false, Workers: 0, Attempts: defaultProbeAttempts}
 	for _, opt := range opts {
 		opt(cfg)
 	}
@@ -116,13 +131,11 @@ func scan(info iface.Info, cfg *ScanConfig) ([]output.Device, error) {
 	debug := cfg.Debug
 	scanStart := time.Now()
 	if debug {
-		fmt.Fprintf(os.Stderr, "[DEBUG] === Scan started ===\n")
-		fmt.Fprintf(os.Stderr, "[DEBUG] Interface: %s, MAC: %s\n", info.Name, info.Iface.HardwareAddr.String())
-		fmt.Fprintf(os.Stderr, "[DEBUG] Subnets: %s\n", info.CIDRs)
+		fmt.Fprintf(os.Stderr, "[DEBUG] Scan started | interface=%s mac=%s subnets=%s\n", info.Name, info.Iface.HardwareAddr.String(), info.CIDRs)
 	}
 
 	if runtime.GOOS == "windows" {
-		devices, err := scanWindows(info, debug, cfg.Workers, cfg.StopAtFreeCount)
+		devices, err := scanWindows(info, debug, cfg.Workers, cfg.Attempts, cfg.StopAtFreeCount)
 		if err != nil {
 			return nil, fmt.Errorf("scanning on windows: %w", err)
 		}
@@ -137,8 +150,12 @@ func scan(info iface.Info, cfg *ScanConfig) ([]output.Device, error) {
 	defer conn.Close()
 
 	targets := hostsFromNets(info.Nets)
+	attempts := cfg.Attempts
+	if attempts <= 0 {
+		attempts = defaultProbeAttempts
+	}
 	if debug {
-		fmt.Fprintf(os.Stderr, "[DEBUG] Total targets to probe: %d\n", len(targets))
+		fmt.Fprintf(os.Stderr, "[DEBUG] Scan parameters | targets=%d attempts=%d\n", len(targets), attempts)
 	}
 
 	var (
@@ -157,7 +174,7 @@ func scan(info iface.Info, cfg *ScanConfig) ([]output.Device, error) {
 		defer close(readerDone)
 		defer func() {
 			if debug {
-				fmt.Fprintf(os.Stderr, "[DEBUG] Reader stats: reads=%d, timeouts=%d, unique devices=%d\n", readCount, timeoutCount, len(devices))
+				fmt.Fprintf(os.Stderr, "[DEBUG] Reader summary | reads=%d timeouts=%d unique_devices=%d\n", readCount, timeoutCount, len(devices))
 			}
 		}()
 		buf := make([]byte, 4096) // BPF buffer must match system BPF buffer size
@@ -195,7 +212,7 @@ func scan(info iface.Info, cfg *ScanConfig) ([]output.Device, error) {
 			senderIP := net.IP(append([]byte{}, buf[28:32]...)).String()
 
 			if debug {
-				fmt.Fprintf(os.Stderr, "[DEBUG] ARP reply: %s -> %s (packet size: %d bytes)\n", senderIP, senderMAC, n)
+				fmt.Fprintf(os.Stderr, "[DEBUG] ARP response | sender_ip=%s sender_mac=%s frame_size=%d\n", senderIP, senderMAC, n)
 			}
 
 			mu.Lock()
@@ -205,7 +222,7 @@ func scan(info iface.Info, cfg *ScanConfig) ([]output.Device, error) {
 				inUseCount := len(devices)
 				confirmedFreeCount := probesSent - inUseCount
 				if debug && confirmedFreeCount >= cfg.StopAtFreeCount {
-					fmt.Fprintf(os.Stderr, "[DEBUG] Probed: %d, responded: %d, confirmed free: %d (need %d)\n", probesSent, inUseCount, confirmedFreeCount, cfg.StopAtFreeCount)
+					fmt.Fprintf(os.Stderr, "[DEBUG] Early-exit threshold reached | probed=%d responded=%d confirmed_free=%d required=%d\n", probesSent, inUseCount, confirmedFreeCount, cfg.StopAtFreeCount)
 				}
 				if confirmedFreeCount >= cfg.StopAtFreeCount {
 					select {
@@ -225,7 +242,7 @@ func scan(info iface.Info, cfg *ScanConfig) ([]output.Device, error) {
 		workers = cfg.Workers
 	}
 	if debug {
-		fmt.Fprintf(os.Stderr, "[DEBUG] Worker count: %d\n", workers)
+		fmt.Fprintf(os.Stderr, "[DEBUG] Dispatch settings | workers=%d\n", workers)
 	}
 	sem := make(chan struct{}, workers)
 	var wg sync.WaitGroup
@@ -238,7 +255,7 @@ func scan(info iface.Info, cfg *ScanConfig) ([]output.Device, error) {
 				sent := probesSent
 				mu.Unlock()
 				if debug {
-					fmt.Fprintf(os.Stderr, "[DEBUG] Early exit: stopping probe dispatch after %d/%d probes\n", sent, len(targets))
+					fmt.Fprintf(os.Stderr, "[DEBUG] Probe dispatch stopped early | dispatched=%d total_targets=%d\n", sent, len(targets))
 				}
 				goto waitForProbes
 			default:
@@ -253,7 +270,7 @@ func scan(info iface.Info, cfg *ScanConfig) ([]output.Device, error) {
 		go func(target net.IP) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			sendARP(conn, info.Iface, target, debug)
+			sendARPWithRetries(conn, info.Iface, target, attempts, debug)
 		}(ip)
 	}
 waitForProbes:
@@ -264,7 +281,7 @@ waitForProbes:
 		select {
 		case <-earlyChan:
 			if debug {
-				fmt.Fprintf(os.Stderr, "[DEBUG] Early exit triggered: found enough free IPs\n")
+				fmt.Fprintf(os.Stderr, "[DEBUG] Early exit activated | sufficient free addresses identified\n")
 			}
 			// Brief delay for any final replies.
 			time.Sleep(100 * time.Millisecond)
@@ -284,14 +301,37 @@ waitForProbes:
 	}
 	sortDevices(result)
 
+	responseSampleIPs := make([]string, 0, debugSampleIPLogCap)
+	noResponseSampleIPs := make([]string, 0, debugSampleIPLogCap)
+	for _, target := range targets {
+		targetIP := target.String()
+		if _, ok := devices[targetIP]; ok {
+			if len(responseSampleIPs) < debugSampleIPLogCap {
+				responseSampleIPs = append(responseSampleIPs, targetIP)
+			}
+			continue
+		}
+		if len(noResponseSampleIPs) < debugSampleIPLogCap {
+			noResponseSampleIPs = append(noResponseSampleIPs, targetIP)
+		}
+		if len(responseSampleIPs) >= debugSampleIPLogCap && len(noResponseSampleIPs) >= debugSampleIPLogCap {
+			break
+		}
+	}
+
 	if debug {
 		duration := time.Since(scanStart)
-		fmt.Fprintf(os.Stderr, "[DEBUG] Scan completed in %v\n", duration)
-		fmt.Fprintf(os.Stderr, "[DEBUG] Probes sent: %d/%d targets\n", probesSent, len(targets))
+		fmt.Fprintf(os.Stderr, "[DEBUG] Scan completed | duration=%v dispatched=%d total_targets=%d\n", duration, probesSent, len(targets))
 		if probesSent > 0 {
-			fmt.Fprintf(os.Stderr, "[DEBUG] Response rate: %d/%d (%.1f%%)\n", len(devices), probesSent, float64(len(devices))*100/float64(probesSent))
+			fmt.Fprintf(os.Stderr, "[DEBUG] Response metrics | responded=%d dispatched=%d response_rate=%.1f%%\n", len(devices), probesSent, float64(len(devices))*100/float64(probesSent))
 		}
-		fmt.Fprintf(os.Stderr, "[DEBUG] === Scan finished ===\n")
+		if len(responseSampleIPs) > 0 {
+			fmt.Fprintf(os.Stderr, "[DEBUG] Sample IP addresses responding to ARP requests: %v\n", responseSampleIPs)
+		}
+		if len(noResponseSampleIPs) > 0 {
+			fmt.Fprintf(os.Stderr, "[DEBUG] Sample IP addresses with no ARP response: %v\n", noResponseSampleIPs)
+		}
+		fmt.Fprintf(os.Stderr, "[DEBUG] Scan finished\n")
 	}
 
 	return result, nil
@@ -300,7 +340,7 @@ waitForProbes:
 // FindFree scans the subnet and returns IP addresses that did NOT respond.
 // If max > 0 the result is capped at max addresses.
 func FindFree(info iface.Info, max int, opts ...ScanOption) ([]string, error) {
-	cfg := &ScanConfig{Debug: false, Workers: 0}
+	cfg := &ScanConfig{Debug: false, Workers: 0, Attempts: defaultProbeAttempts}
 	for _, opt := range opts {
 		opt(cfg)
 	}
@@ -313,6 +353,7 @@ func findFree(info iface.Info, max int, cfg *ScanConfig) ([]string, error) {
 	scanCfg := &ScanConfig{
 		Debug:           cfg.Debug,
 		Workers:         cfg.Workers,
+		Attempts:        cfg.Attempts,
 		StopAtFreeCount: max, // Apply early exit when a limit is set
 	}
 
@@ -428,6 +469,19 @@ func sendARP(conn net.Conn, ifc *net.Interface, target net.IP, debug bool) {
 
 	if debug {
 		fmt.Fprintf(os.Stderr, "[DEBUG] ARP request: who-has %s tell %s (from %s) (packet size: %d bytes)\n", target, srcIP, srcMAC.String(), len(frame))
+	}
+}
+
+func sendARPWithRetries(conn net.Conn, ifc *net.Interface, target net.IP, attempts int, debug bool) {
+	if attempts <= 0 {
+		attempts = defaultProbeAttempts
+	}
+
+	for attempt := 1; attempt <= attempts; attempt++ {
+		sendARP(conn, ifc, target, debug)
+		if attempt < attempts {
+			time.Sleep(probeRetryDelay)
+		}
 	}
 }
 
