@@ -70,8 +70,9 @@ func buildEthernetFrame(src, dst net.HardwareAddr, payload []byte) []byte {
 
 // ScanConfig holds options for the Scan operation.
 type ScanConfig struct {
-	Debug   bool
-	Workers int
+	Debug           bool
+	Workers         int
+	StopAtFreeCount int // Stop scanning when this many free IPs are found (0 = scan all)
 }
 
 // ScanOption is a functional option for configuring Scan.
@@ -89,6 +90,14 @@ func WithDebug(enabled bool) ScanOption {
 func WithWorkers(workers int) ScanOption {
 	return func(cfg *ScanConfig) {
 		cfg.Workers = workers
+	}
+}
+
+// WithStopAtFreeCount enables early exit when finding N free IPs.
+// When N > 0, the scan stops as soon as N free (non-responding) IPs are identified.
+func WithStopAtFreeCount(n int) ScanOption {
+	return func(cfg *ScanConfig) {
+		cfg.StopAtFreeCount = n
 	}
 }
 
@@ -113,7 +122,7 @@ func scan(info iface.Info, cfg *ScanConfig) ([]output.Device, error) {
 	}
 
 	if runtime.GOOS == "windows" {
-		devices, err := scanWindows(info, debug, cfg.Workers)
+		devices, err := scanWindows(info, debug, cfg.Workers, cfg.StopAtFreeCount)
 		if err != nil {
 			return nil, fmt.Errorf("scanning on windows: %w", err)
 		}
@@ -133,13 +142,15 @@ func scan(info iface.Info, cfg *ScanConfig) ([]output.Device, error) {
 	}
 
 	var (
-		mu      sync.Mutex
-		devices = make(map[string]string) // ip → mac
+		mu         sync.Mutex
+		devices    = make(map[string]string) // ip → mac
+		probesSent int
 	)
 
 	// Background reader goroutine — collects ARP replies.
 	stop := make(chan struct{})
 	readerDone := make(chan struct{})
+	earlyChan := make(chan struct{}) // Signal early exit condition
 	readCount := 0
 	timeoutCount := 0
 	go func() {
@@ -189,6 +200,21 @@ func scan(info iface.Info, cfg *ScanConfig) ([]output.Device, error) {
 
 			mu.Lock()
 			devices[senderIP] = senderMAC
+			// Check for early exit: if we have N confirmed free IPs (probed but no response).
+			if cfg.StopAtFreeCount > 0 && probesSent > 0 {
+				inUseCount := len(devices)
+				confirmedFreeCount := probesSent - inUseCount
+				if debug && confirmedFreeCount >= cfg.StopAtFreeCount {
+					fmt.Fprintf(os.Stderr, "[DEBUG] Probed: %d, responded: %d, confirmed free: %d (need %d)\n", probesSent, inUseCount, confirmedFreeCount, cfg.StopAtFreeCount)
+				}
+				if confirmedFreeCount >= cfg.StopAtFreeCount {
+					select {
+					case <-earlyChan:
+					default:
+						close(earlyChan)
+					}
+				}
+			}
 			mu.Unlock()
 		}
 	}()
@@ -204,18 +230,51 @@ func scan(info iface.Info, cfg *ScanConfig) ([]output.Device, error) {
 	sem := make(chan struct{}, workers)
 	var wg sync.WaitGroup
 	for _, ip := range targets {
+		// Check if early exit has been triggered
+		if cfg.StopAtFreeCount > 0 {
+			select {
+			case <-earlyChan:
+				mu.Lock()
+				sent := probesSent
+				mu.Unlock()
+				if debug {
+					fmt.Fprintf(os.Stderr, "[DEBUG] Early exit: stopping probe dispatch after %d/%d probes\n", sent, len(targets))
+				}
+				goto waitForProbes
+			default:
+			}
+		}
+
 		wg.Add(1)
 		sem <- struct{}{}
+		mu.Lock()
+		probesSent++
+		mu.Unlock()
 		go func(target net.IP) {
 			defer wg.Done()
 			defer func() { <-sem }()
 			sendARP(conn, info.Iface, target, debug)
 		}(ip)
 	}
+waitForProbes:
 	wg.Wait()
 
-	// Allow extra time for replies to arrive.
-	time.Sleep(probeTimeout)
+	// Allow extra time for replies to arrive, unless we've found enough free IPs.
+	if cfg.StopAtFreeCount > 0 {
+		select {
+		case <-earlyChan:
+			if debug {
+				fmt.Fprintf(os.Stderr, "[DEBUG] Early exit triggered: found enough free IPs\n")
+			}
+			// Brief delay for any final replies.
+			time.Sleep(100 * time.Millisecond)
+		default:
+			// Normal timeout if early exit not yet triggered.
+			time.Sleep(probeTimeout)
+		}
+	} else {
+		time.Sleep(probeTimeout)
+	}
 	close(stop)
 	<-readerDone
 
@@ -228,7 +287,10 @@ func scan(info iface.Info, cfg *ScanConfig) ([]output.Device, error) {
 	if debug {
 		duration := time.Since(scanStart)
 		fmt.Fprintf(os.Stderr, "[DEBUG] Scan completed in %v\n", duration)
-		fmt.Fprintf(os.Stderr, "[DEBUG] Response rate: %d/%d (%.1f%%)\n", len(devices), len(targets), float64(len(devices))*100/float64(len(targets)))
+		fmt.Fprintf(os.Stderr, "[DEBUG] Probes sent: %d/%d targets\n", probesSent, len(targets))
+		if probesSent > 0 {
+			fmt.Fprintf(os.Stderr, "[DEBUG] Response rate: %d/%d (%.1f%%)\n", len(devices), probesSent, float64(len(devices))*100/float64(probesSent))
+		}
 		fmt.Fprintf(os.Stderr, "[DEBUG] === Scan finished ===\n")
 	}
 
@@ -247,7 +309,14 @@ func FindFree(info iface.Info, max int, opts ...ScanOption) ([]string, error) {
 
 // findFree performs the actual free IP lookup with the given configuration.
 func findFree(info iface.Info, max int, cfg *ScanConfig) ([]string, error) {
-	devices, err := scan(info, cfg)
+	// Apply early-exit optimization if a limit is requested.
+	scanCfg := &ScanConfig{
+		Debug:           cfg.Debug,
+		Workers:         cfg.Workers,
+		StopAtFreeCount: max, // Apply early exit when a limit is set
+	}
+
+	devices, err := scan(info, scanCfg)
 	if err != nil {
 		return nil, err
 	}
