@@ -16,6 +16,7 @@ var (
 	findOutput    string
 	findCount     int
 	findDebug     bool
+	findWorkers   int
 )
 
 var findCmd = &cobra.Command{
@@ -35,6 +36,7 @@ func init() {
 	findCmd.Flags().StringVarP(&findOutput, "output", "o", "free_ips.json", "Path to the output JSON file")
 	findCmd.Flags().IntVarP(&findCount, "count", "c", 0, "Maximum number of free IPs to return per subnet (0 = all)")
 	findCmd.Flags().BoolVar(&findDebug, "debug", false, "Enable debug logging")
+	findCmd.Flags().IntVarP(&findWorkers, "workers", "w", 0, "Number of concurrent probe workers (0 = platform default)")
 }
 
 func runFind(cmd *cobra.Command, args []string) error {
@@ -53,7 +55,7 @@ func runFind(cmd *cobra.Command, args []string) error {
 	for _, ifc := range interfaces {
 		fmt.Fprintf(os.Stderr, "[*] Scanning %s (%s) ...\n", ifc.Name, ifc.CIDRs)
 
-		freeIPs, err := arp.FindFree(ifc, findCount, arp.WithDebug(findDebug))
+		freeIPs, err := arp.FindFree(ifc, findCount, arp.WithDebug(findDebug), arp.WithWorkers(findWorkers))
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "[!] %s: %v\n", ifc.Name, err)
 			failedInterfaces++

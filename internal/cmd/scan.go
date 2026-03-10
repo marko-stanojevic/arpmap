@@ -15,6 +15,7 @@ var (
 	scanInterface string
 	scanOutput    string
 	scanDebug     bool
+	scanWorkers   int
 )
 
 var scanCmd = &cobra.Command{
@@ -33,6 +34,7 @@ func init() {
 	scanCmd.Flags().StringVarP(&scanInterface, "interface", "i", "", "Network interface to scan (default: all non-loopback interfaces)")
 	scanCmd.Flags().StringVarP(&scanOutput, "output", "o", "devices.json", "Path to the output JSON file")
 	scanCmd.Flags().BoolVar(&scanDebug, "debug", false, "Enable debug logging")
+	scanCmd.Flags().IntVarP(&scanWorkers, "workers", "w", 0, "Number of concurrent probe workers (0 = platform default)")
 }
 
 func runScan(cmd *cobra.Command, args []string) error {
@@ -51,7 +53,7 @@ func runScan(cmd *cobra.Command, args []string) error {
 	for _, ifc := range interfaces {
 		fmt.Fprintf(os.Stderr, "[*] Scanning %s (%s) ...\n", ifc.Name, ifc.CIDRs)
 
-		devices, err := arp.Scan(ifc, arp.WithDebug(scanDebug))
+		devices, err := arp.Scan(ifc, arp.WithDebug(scanDebug), arp.WithWorkers(scanWorkers))
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "[!] %s: %v\n", ifc.Name, err)
 			failedInterfaces++

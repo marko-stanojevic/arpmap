@@ -71,6 +71,7 @@ func buildEthernetFrame(src, dst net.HardwareAddr, payload []byte) []byte {
 // ScanConfig holds options for the Scan operation.
 type ScanConfig struct {
 	Debug bool
+	Workers int
 }
 
 // ScanOption is a functional option for configuring Scan.
@@ -83,18 +84,27 @@ func WithDebug(enabled bool) ScanOption {
 	}
 }
 
+// WithWorkers sets the number of concurrent probe workers.
+// Values <= 0 use platform defaults.
+func WithWorkers(workers int) ScanOption {
+	return func(cfg *ScanConfig) {
+		cfg.Workers = workers
+	}
+}
+
 // Scan sends ARP requests to every host in every subnet of the given interface
 // and returns the set of responding devices.
 func Scan(info iface.Info, opts ...ScanOption) ([]output.Device, error) {
-	cfg := &ScanConfig{Debug: false}
+	cfg := &ScanConfig{Debug: false, Workers: 0}
 	for _, opt := range opts {
 		opt(cfg)
 	}
-	return scan(info, cfg.Debug)
+	return scan(info, cfg)
 }
 
-// scan performs the actual ARP scanning with the given debug flag.
-func scan(info iface.Info, debug bool) ([]output.Device, error) {
+// scan performs the actual ARP scanning with the given configuration.
+func scan(info iface.Info, cfg *ScanConfig) ([]output.Device, error) {
+	debug := cfg.Debug
 	scanStart := time.Now()
 	if debug {
 		fmt.Fprintf(os.Stderr, "[DEBUG] === Scan started ===\n")
@@ -103,7 +113,7 @@ func scan(info iface.Info, debug bool) ([]output.Device, error) {
 	}
 
 	if runtime.GOOS == "windows" {
-		devices, err := scanWindows(info, debug)
+		devices, err := scanWindows(info, debug, cfg.Workers)
 		if err != nil {
 			return nil, fmt.Errorf("scanning on windows: %w", err)
 		}
@@ -184,7 +194,14 @@ func scan(info iface.Info, debug bool) ([]output.Device, error) {
 	}()
 
 	// Send ARP requests with bounded concurrency.
-	sem := make(chan struct{}, workerCount)
+	workers := workerCount
+	if cfg.Workers > 0 {
+		workers = cfg.Workers
+	}
+	if debug {
+		fmt.Fprintf(os.Stderr, "[DEBUG] Worker count: %d\n", workers)
+	}
+	sem := make(chan struct{}, workers)
 	var wg sync.WaitGroup
 	for _, ip := range targets {
 		wg.Add(1)
@@ -221,16 +238,16 @@ func scan(info iface.Info, debug bool) ([]output.Device, error) {
 // FindFree scans the subnet and returns IP addresses that did NOT respond.
 // If max > 0 the result is capped at max addresses.
 func FindFree(info iface.Info, max int, opts ...ScanOption) ([]string, error) {
-	cfg := &ScanConfig{Debug: false}
+	cfg := &ScanConfig{Debug: false, Workers: 0}
 	for _, opt := range opts {
 		opt(cfg)
 	}
-	return findFree(info, max, cfg.Debug)
+	return findFree(info, max, cfg)
 }
 
-// findFree performs the actual free IP lookup with the given debug flag.
-func findFree(info iface.Info, max int, debug bool) ([]string, error) {
-	devices, err := scan(info, debug)
+// findFree performs the actual free IP lookup with the given configuration.
+func findFree(info iface.Info, max int, cfg *ScanConfig) ([]string, error) {
+	devices, err := scan(info, cfg)
 	if err != nil {
 		return nil, err
 	}

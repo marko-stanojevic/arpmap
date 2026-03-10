@@ -40,7 +40,7 @@ const (
 	windowsNoResponseLogCap = 10
 )
 
-func scanWindows(info iface.Info, debug bool) ([]output.Device, error) {
+func scanWindows(info iface.Info, debug bool, workers int) ([]output.Device, error) {
 	if err := initializeSendARP(); err != nil {
 		return nil, fmt.Errorf("initializing SendARP: %w", err)
 	}
@@ -49,13 +49,16 @@ func scanWindows(info iface.Info, debug bool) ([]output.Device, error) {
 	if len(targets) == 0 {
 		return nil, nil
 	}
+	if workers <= 0 {
+		workers = windowsWorkerCount
+	}
 
 	if debug {
 		fmt.Fprintf(os.Stderr, "[DEBUG] [windows] SendARP probing started\n")
-		fmt.Fprintf(os.Stderr, "[DEBUG] [windows] Targets=%d, workers=%d, attempts=%d\n", len(targets), windowsWorkerCount, windowsProbeAttempts)
+		fmt.Fprintf(os.Stderr, "[DEBUG] [windows] Targets=%d, workers=%d, attempts=%d\n", len(targets), workers, windowsProbeAttempts)
 	}
 
-	sem := make(chan struct{}, windowsWorkerCount)
+	sem := make(chan struct{}, workers)
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	devicesByIP := make(map[string]string, len(targets))
