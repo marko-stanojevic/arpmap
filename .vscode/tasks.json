@@ -54,6 +54,9 @@
             "label": "goreleaser build (local artifacts)",
             "type": "shell",
             "command": "mkdir -p .tools/goreleaser && if [ ! -x .tools/goreleaser/goreleaser ]; then curl -sSL https://github.com/goreleaser/goreleaser/releases/download/v2.14.1/goreleaser_Linux_x86_64.tar.gz | tar -xz -C .tools/goreleaser goreleaser; fi && .tools/goreleaser/goreleaser build --snapshot --clean --skip=validate",
+            "windows": {
+                "command": "$ErrorActionPreference = 'Stop'; New-Item -ItemType Directory -Force -Path .tools/goreleaser | Out-Null; $goreleaserExe = Join-Path $PWD '.tools/goreleaser/goreleaser.exe'; if (-not (Test-Path $goreleaserExe)) { Invoke-WebRequest -Uri 'https://github.com/goreleaser/goreleaser/releases/download/v2.14.1/goreleaser_Windows_x86_64.zip' -OutFile '.tools/goreleaser/goreleaser.zip'; Expand-Archive -Path '.tools/goreleaser/goreleaser.zip' -DestinationPath '.tools/goreleaser' -Force; Remove-Item '.tools/goreleaser/goreleaser.zip' }; & $goreleaserExe build --snapshot --clean --skip=validate"
+            },
             "presentation": {
                 "reveal": "always",
                 "panel": "dedicated"
@@ -63,6 +66,9 @@
             "label": "goreleaser release (local package artifacts)",
             "type": "shell",
             "command": "mkdir -p .tools/goreleaser && if [ ! -x .tools/goreleaser/goreleaser ]; then curl -sSL https://github.com/goreleaser/goreleaser/releases/download/v2.14.1/goreleaser_Linux_x86_64.tar.gz | tar -xz -C .tools/goreleaser goreleaser; fi && .tools/goreleaser/goreleaser release --snapshot --clean --skip=publish --skip=validate",
+            "windows": {
+                "command": "$ErrorActionPreference = 'Stop'; New-Item -ItemType Directory -Force -Path .tools/goreleaser | Out-Null; $goreleaserExe = Join-Path $PWD '.tools/goreleaser/goreleaser.exe'; if (-not (Test-Path $goreleaserExe)) { Invoke-WebRequest -Uri 'https://github.com/goreleaser/goreleaser/releases/download/v2.14.1/goreleaser_Windows_x86_64.zip' -OutFile '.tools/goreleaser/goreleaser.zip'; Expand-Archive -Path '.tools/goreleaser/goreleaser.zip' -DestinationPath '.tools/goreleaser' -Force; Remove-Item '.tools/goreleaser/goreleaser.zip' }; & $goreleaserExe release --snapshot --clean --skip=publish --skip=validate"
+            },
             "presentation": {
                 "reveal": "always",
                 "panel": "dedicated"
