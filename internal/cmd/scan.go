@@ -16,6 +16,7 @@ var (
 	scanOutput    string
 	scanDebug     bool
 	scanWorkers   int
+	scanAttempts  int
 )
 
 var scanCmd = &cobra.Command{
@@ -35,6 +36,7 @@ func init() {
 	scanCmd.Flags().StringVarP(&scanOutput, "output", "o", "devices.json", "Path to the output JSON file")
 	scanCmd.Flags().BoolVar(&scanDebug, "debug", false, "Enable debug logging")
 	scanCmd.Flags().IntVarP(&scanWorkers, "workers", "w", 0, "Number of concurrent probe workers (0 = platform default)")
+	scanCmd.Flags().IntVarP(&scanAttempts, "attempts", "a", 1, "Number of ARP probe attempts per target (default: 1)")
 }
 
 func runScan(cmd *cobra.Command, args []string) error {
@@ -51,11 +53,11 @@ func runScan(cmd *cobra.Command, args []string) error {
 	successfulInterfaces := 0
 
 	for _, ifc := range interfaces {
-		fmt.Fprintf(os.Stderr, "[*] Scanning %s (%s) ...\n", ifc.Name, ifc.CIDRs)
+		fmt.Fprintf(os.Stderr, "[INFO] Starting ARP scan on interface=%s subnets=%s\n", ifc.Name, ifc.CIDRs)
 
-		devices, err := arp.Scan(ifc, arp.WithDebug(scanDebug), arp.WithWorkers(scanWorkers))
+		devices, err := arp.Scan(ifc, arp.WithDebug(scanDebug), arp.WithWorkers(scanWorkers), arp.WithAttempts(scanAttempts))
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "[!] %s: %v\n", ifc.Name, err)
+			fmt.Fprintf(os.Stderr, "[ERROR] ARP scan failed on interface=%s: %v\n", ifc.Name, err)
 			failedInterfaces++
 			continue
 		}
@@ -68,11 +70,11 @@ func runScan(cmd *cobra.Command, args []string) error {
 		}
 		result.Interfaces = append(result.Interfaces, ifaceResult)
 
-		fmt.Fprintf(os.Stderr, "[+] %s: found %d device(s)\n", ifc.Name, len(devices))
+		fmt.Fprintf(os.Stderr, "[INFO] Completed ARP scan on interface=%s discovered_devices=%d\n", ifc.Name, len(devices))
 	}
 
 	if successfulInterfaces == 0 {
-		fmt.Fprintf(os.Stderr, "[!] All %d interface scan(s) failed; no output file was created.\n", failedInterfaces)
+		fmt.Fprintf(os.Stderr, "[ERROR] All interface scans failed (count=%d); output file was not created\n", failedInterfaces)
 		return fmt.Errorf("all interface scans failed")
 	}
 
@@ -85,6 +87,6 @@ func runScan(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("writing output file: %w", err)
 	}
 
-	fmt.Fprintf(os.Stderr, "[+] Results written to %s\n", scanOutput)
+	fmt.Fprintf(os.Stderr, "[INFO] Scan results written to %s\n", scanOutput)
 	return nil
 }

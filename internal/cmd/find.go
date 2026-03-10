@@ -17,6 +17,7 @@ var (
 	findCount     int
 	findDebug     bool
 	findWorkers   int
+	findAttempts  int
 )
 
 var findCmd = &cobra.Command{
@@ -37,6 +38,7 @@ func init() {
 	findCmd.Flags().IntVarP(&findCount, "count", "c", 0, "Maximum number of free IPs to return per subnet (0 = all)")
 	findCmd.Flags().BoolVar(&findDebug, "debug", false, "Enable debug logging")
 	findCmd.Flags().IntVarP(&findWorkers, "workers", "w", 0, "Number of concurrent probe workers (0 = platform default)")
+	findCmd.Flags().IntVarP(&findAttempts, "attempts", "a", 1, "Number of ARP probe attempts per target (default: 1)")
 }
 
 func runFind(cmd *cobra.Command, args []string) error {
@@ -53,11 +55,11 @@ func runFind(cmd *cobra.Command, args []string) error {
 	successfulInterfaces := 0
 
 	for _, ifc := range interfaces {
-		fmt.Fprintf(os.Stderr, "[*] Scanning %s (%s) ...\n", ifc.Name, ifc.CIDRs)
+		fmt.Fprintf(os.Stderr, "[INFO] Starting free-IP discovery on interface=%s subnets=%s\n", ifc.Name, ifc.CIDRs)
 
-		freeIPs, err := arp.FindFree(ifc, findCount, arp.WithDebug(findDebug), arp.WithWorkers(findWorkers))
+		freeIPs, err := arp.FindFree(ifc, findCount, arp.WithDebug(findDebug), arp.WithWorkers(findWorkers), arp.WithAttempts(findAttempts))
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "[!] %s: %v\n", ifc.Name, err)
+			fmt.Fprintf(os.Stderr, "[ERROR] Free-IP discovery failed on interface=%s: %v\n", ifc.Name, err)
 			failedInterfaces++
 			continue
 		}
@@ -70,11 +72,11 @@ func runFind(cmd *cobra.Command, args []string) error {
 		}
 		result.Interfaces = append(result.Interfaces, ifaceResult)
 
-		fmt.Fprintf(os.Stderr, "[+] %s: found %d free address(es)\n", ifc.Name, len(freeIPs))
+		fmt.Fprintf(os.Stderr, "[INFO] Completed free-IP discovery on interface=%s free_addresses=%d\n", ifc.Name, len(freeIPs))
 	}
 
 	if successfulInterfaces == 0 {
-		fmt.Fprintf(os.Stderr, "[!] All %d interface scan(s) failed; no output file was created.\n", failedInterfaces)
+		fmt.Fprintf(os.Stderr, "[ERROR] All interface scans failed (count=%d); output file was not created\n", failedInterfaces)
 		return fmt.Errorf("all interface scans failed")
 	}
 
@@ -87,6 +89,6 @@ func runFind(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("writing output file: %w", err)
 	}
 
-	fmt.Fprintf(os.Stderr, "[+] Results written to %s\n", findOutput)
+	fmt.Fprintf(os.Stderr, "[INFO] Free-IP results written to %s\n", findOutput)
 	return nil
 }

@@ -35,27 +35,37 @@ var (
 
 const (
 	windowsWorkerCount      = 32
-	windowsProbeAttempts    = 2
+	windowsProbeAttempts    = 1
 	windowsProbeRetryDelay  = 150 * time.Millisecond
-	windowsNoResponseLogCap = 10
+	windowsResponseLogCap   = 3
+	windowsNoResponseLogCap = 3
 )
 
-func scanWindows(info iface.Info, debug bool, workers int, stopAtFreeCount int) ([]output.Device, error) {
+func scanWindows(info iface.Info, debug bool, workers int, attempts int, stopAtFreeCount int) ([]output.Device, error) {
+	scanStart := time.Now()
+	initStart := time.Now()
 	if err := initializeSendARP(); err != nil {
 		return nil, fmt.Errorf("initializing SendARP: %w", err)
 	}
+	initDuration := time.Since(initStart)
 
+	targetStart := time.Now()
 	targets := hostsFromNets(info.Nets)
 	if len(targets) == 0 {
 		return nil, nil
 	}
+	targetDuration := time.Since(targetStart)
 	if workers <= 0 {
 		workers = windowsWorkerCount
 	}
+	if attempts <= 0 {
+		attempts = defaultProbeAttempts
+	}
 
 	if debug {
-		fmt.Fprintf(os.Stderr, "[DEBUG] [windows] SendARP probing started\n")
-		fmt.Fprintf(os.Stderr, "[DEBUG] [windows] Targets=%d, workers=%d, attempts=%d\n", len(targets), workers, windowsProbeAttempts)
+		fmt.Fprintf(os.Stderr, "[DEBUG] [windows] Scan started | mode=SendARP\n")
+		fmt.Fprintf(os.Stderr, "[DEBUG] [windows] Startup timings | init=%v target_expansion=%v\n", initDuration, targetDuration)
+		fmt.Fprintf(os.Stderr, "[DEBUG] [windows] Scan parameters | targets=%d workers=%d attempts=%d\n", len(targets), workers, attempts)
 	}
 
 	sem := make(chan struct{}, workers)
@@ -63,6 +73,7 @@ func scanWindows(info iface.Info, debug bool, workers int, stopAtFreeCount int) 
 	var mu sync.Mutex
 	devicesByIP := make(map[string]string, len(targets))
 	errnoCounts := make(map[syscall.Errno]int)
+	responseIPs := make([]string, 0, windowsResponseLogCap)
 	noResponseIPs := make([]string, 0, windowsNoResponseLogCap)
 	probedCount := 0
 	responseCount := 0
@@ -79,6 +90,7 @@ func scanWindows(info iface.Info, debug bool, workers int, stopAtFreeCount int) 
 		}
 	}
 
+	dispatchStart := time.Now()
 	for _, ip := range targets {
 		// Early exit check before starting new goroutine
 		if stopAtFreeCount > 0 && noResponseCount >= stopAtFreeCount {
@@ -100,7 +112,7 @@ func scanWindows(info iface.Info, debug bool, workers int, stopAtFreeCount int) 
 				return
 			}
 
-			mac, found, err := resolveMACWithSendARPRetries(target, windowsProbeAttempts)
+			mac, found, err := resolveMACWithSendARPRetries(target, attempts)
 
 			mu.Lock()
 			probedCount++
@@ -128,7 +140,7 @@ func scanWindows(info iface.Info, debug bool, workers int, stopAtFreeCount int) 
 				freeCount := noResponseCount
 				minInUseNeeded := len(targets) - stopAtFreeCount
 				if stopAtFreeCount > 0 && debug && freeCount >= stopAtFreeCount {
-					fmt.Fprintf(os.Stderr, "[DEBUG] [windows] Found %d free IPs (probed: %d, in-use: %d)\n", freeCount, probedCount, len(devicesByIP))
+					fmt.Fprintf(os.Stderr, "[DEBUG] [windows] Early-exit threshold reached | free=%d probed=%d in_use=%d\n", freeCount, probedCount, len(devicesByIP))
 				}
 				// Signal early exit if we have enough free IPs
 				if stopAtFreeCount > 0 && freeCount >= stopAtFreeCount && len(devicesByIP) > minInUseNeeded {
@@ -148,9 +160,13 @@ func scanWindows(info iface.Info, debug bool, workers int, stopAtFreeCount int) 
 			mu.Lock()
 			devicesByIP[target.String()] = mac.String()
 			responseCount++
+			if debug && len(responseIPs) < windowsResponseLogCap {
+				responseIPs = append(responseIPs, target.String())
+			}
 			mu.Unlock()
 		}()
 	}
+	dispatchDuration := time.Since(dispatchStart)
 
 	wg.Wait()
 	close(errCh)
@@ -159,16 +175,21 @@ func scanWindows(info iface.Info, debug bool, workers int, stopAtFreeCount int) 
 	}
 
 	if debug {
-		fmt.Fprintf(os.Stderr, "[DEBUG] [windows] Probed=%d, responded=%d, no-response=%d, errors=%d\n", probedCount, responseCount, noResponseCount, errorCount)
+		totalDuration := time.Since(scanStart)
+		fmt.Fprintf(os.Stderr, "[DEBUG] [windows] Timing summary | dispatch=%v total=%v\n", dispatchDuration, totalDuration)
+		fmt.Fprintf(os.Stderr, "[DEBUG] [windows] Scan summary | probed=%d responded=%d no_response=%d errors=%d\n", probedCount, responseCount, noResponseCount, errorCount)
+		if len(responseIPs) > 0 {
+			fmt.Fprintf(os.Stderr, "[DEBUG] [windows] Sample IP addresses responding to ARP requests: %v\n", responseIPs)
+		}
 		if len(noResponseIPs) > 0 {
-			fmt.Fprintf(os.Stderr, "[DEBUG] [windows] Sample no-response IPs: %v\n", noResponseIPs)
+			fmt.Fprintf(os.Stderr, "[DEBUG] [windows] Sample IP addresses with no ARP response: %v\n", noResponseIPs)
 		}
 		if len(errnoCounts) > 0 {
 			for errno, count := range errnoCounts {
-				fmt.Fprintf(os.Stderr, "[DEBUG] [windows] SendARP errno=%d count=%d\n", errno, count)
+				fmt.Fprintf(os.Stderr, "[DEBUG] [windows] SendARP error frequency | errno=%d count=%d\n", errno, count)
 			}
 		}
-		fmt.Fprintf(os.Stderr, "[DEBUG] [windows] Unique devices discovered=%d\n", len(devicesByIP))
+		fmt.Fprintf(os.Stderr, "[DEBUG] [windows] Discovery summary | unique_devices=%d\n", len(devicesByIP))
 	}
 
 	devices := make([]output.Device, 0, len(devicesByIP))
