@@ -1,38 +1,57 @@
-# GitHub Copilot Instructions
+# Go Development Guidelines
 
-This repository is `arpmap`, a Go CLI for ARP-based host discovery and free-IP discovery on local IPv4 subnets.
+This repository is written in Go. When generating or suggesting code, follow these guidelines.
 
-## Stack
+## General Principles
+- Follow idiomatic Go practices.
+- Keep code simple, readable, and maintainable.
+- Prefer composition over inheritance.
+- Avoid unnecessary abstractions.
 
-- **Language**: Go 1.22+
-- **CLI framework**: Cobra
-- **Networking**: raw sockets (`AF_PACKET` on Linux, BPF on macOS)
-- **Linter**: golangci-lint
-- **Release**: GoReleaser
+## Formatting
+- Code must comply with `gofmt` and `go vet`.
+- Follow standard Go formatting conventions.
+- Keep line length reasonable for readability.
 
-## Key Conventions
+## Project Structure
+- Follow standard Go project layout.
+- Packages should have clear, focused responsibilities.
+- Avoid circular dependencies.
+- Prefer small packages with clear APIs.
 
-- Commands (`cmd/`) are thin wires; all logic lives in `internal/`
-- Keep command definitions and flags in `internal/cmd`
-- Keep ARP internals and packet/socket logic in `internal/arp`
-- Keep JSON DTOs in `internal/output`
-- Wrap errors with `fmt.Errorf("context: %w", err)` at every boundary
-- Every exported symbol needs a godoc comment
-- Tests live next to the code they test (`foo_test.go` in the same directory)
+## Error Handling
+- Always handle errors explicitly.
+- Avoid ignoring returned errors.
+- Use `fmt.Errorf("message: %w", err)` for wrapping errors.
+- Do not panic except in truly unrecoverable situations.
 
-## When Adding a New CLI Subcommand
+## Logging
+- Use structured logging where possible.
+- Do not log sensitive information.
+- Logging should provide actionable context.
 
-1. Add `internal/cmd/<name>.go`
-2. Define a `cobra.Command` and required flags
-3. Implement `RunE` with wrapped errors
-4. Register it in `internal/cmd/cmd.go`
-5. Add tests in `internal/cmd` and/or relevant internal package
+## Concurrency
+- Use goroutines responsibly.
+- Prefer channels for coordination when appropriate.
+- Avoid shared mutable state when possible.
+- Use `context.Context` for cancellation and timeouts.
 
-## When Changing Scan/Find Output
+## Testing
+- Generate table-driven tests where applicable.
+- Prefer the standard `testing` package.
+- Tests should be deterministic and independent.
+- Mock external dependencies when necessary.
 
-1. Update structures in `internal/output/output.go`
-2. Populate new fields in `internal/cmd/scan.go` and/or `internal/cmd/find.go`
-3. Update docs examples in `README.md` and `docs/`
-4. Add tests to validate output shape and behavior
+## Dependencies
+- Prefer the Go standard library when possible.
+- Avoid unnecessary third-party dependencies.
+- Dependencies must be actively maintained.
 
-Refer to `AGENTS.md` for full coding guidelines.
+## Documentation
+- Exported functions and types must have Go-style comments.
+- Comments should explain *why*, not *what*.
+
+## Performance
+- Avoid premature optimization.
+- Prefer clear code over micro-optimizations.
+- Benchmark before optimizing critical paths.

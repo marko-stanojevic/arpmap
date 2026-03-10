@@ -104,7 +104,10 @@ func openRawConn(ifc *net.Interface) (net.Conn, error) {
 		Len:   uint32(len(filter)),
 		Insns: uintptr(unsafe.Pointer(&filter[0])),
 	}
-	syscall.Syscall(syscall.SYS_IOCTL, uintptr(fd), 0x80104267 /* BIOCSETF */, uintptr(unsafe.Pointer(&bpfProg))) //nolint:errcheck
+	if _, _, errno := syscall.Syscall(syscall.SYS_IOCTL, uintptr(fd), 0x80104267 /* BIOCSETF */, uintptr(unsafe.Pointer(&bpfProg))); errno != 0 {
+		syscall.Close(fd)
+		return nil, fmt.Errorf("BIOCSETF: %w", errno)
+	}
 
 	return &bpfConn{fd: fd, ifc: ifc}, nil
 }
