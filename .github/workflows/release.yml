@@ -109,7 +109,9 @@ jobs:
           body: ${{ steps.notes.outputs.release_body }}
           generate_release_notes: false
           files: |
-            dist/*
+            dist/*.tar.gz
+            dist/*.zip
+            dist/checksums.txt
 
       - name: Release summary
         if: always()
