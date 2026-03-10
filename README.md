@@ -7,38 +7,52 @@
 [![Go Version](https://img.shields.io/badge/Go-1.22%2B-00ADD8?logo=go)](https://go.dev/)
 [![OS Support](https://img.shields.io/badge/OS-Linux%20%7C%20macOS%20%7C%20Windows-blue)](#platform-support)
 
-`arpmap` is a Go CLI for ARP-based host discovery on local IPv4 subnets.
+`arpmap` is a cross-platform Go CLI for ARP-based host discovery on local IPv4 subnets.
 
-It provides two commands:
-- `scan`: discovers responding hosts and writes `IP -> MAC` mappings to JSON.
-- `find`: reports candidate free IP addresses (addresses that did not respond).
+It provides two primary workflows:
+- `scan`: discover responding hosts and write `IP -> MAC` mappings to JSON.
+- `find`: identify candidate free IP addresses that did not respond to ARP probes.
 
 ## About
 
-`arpmap` is designed for fast Layer-2 visibility on local networks where ICMP or higher-layer probes may be filtered.
+`arpmap` is designed for fast Layer-2 visibility on networks where ICMP or higher-layer probes may be filtered, rate-limited, or disabled.
 
-- It sends ARP requests directly over raw sockets and listens for ARP replies.
-- It scans every host address in each resolved IPv4 subnet on the selected interface(s).
-- It is optimized for operational simplicity: JSON output, predictable behavior, and bounded concurrency.
+- It resolves active non-loopback interfaces and scans every IPv4 host address in each attached subnet.
+- Linux and macOS use raw Ethernet capture backends for request fan-out and ARP reply collection.
+- Windows uses the native `SendARP()` API and does not require CGO.
+- Output is written as structured JSON for easy automation and post-processing.
+- Worker count and probe attempts are configurable per command.
+- Debug mode prints scan parameters, timing summaries, response metrics, and sample response/no-response addresses.
 
 ## Requirements
 
 - Go 1.22+
 - Linux/macOS with permissions for raw sockets (`root` or `CAP_NET_RAW`)
-- Windows scan/find is supported using native `SendARP()` (`iphlpapi.dll`) without CGO.
+- Windows scan/find support via native `SendARP()` (`iphlpapi.dll`) without CGO
 
 ## Platform Support
 
-- Linux: full support (scan/find with raw sockets)
-- macOS: full support (scan/find with BPF backend)
-- Windows: scan/find supported via native `SendARP()` probes
+- Linux: `scan` and `find` via raw `AF_PACKET` sockets
+- macOS: `scan` and `find` via BPF
+- Windows: `scan` and `find` via native `SendARP()` probes
 
-## Quick Start
+## Installation
+
+### Release binaries
+
+Download the latest archives from the GitHub Releases page and unpack the archive for your platform.
+
+### Build from source
 
 ```bash
 git clone https://github.com/marko-stanojevic/arpmap.git
 cd arpmap
+go build -o dist/arpmap ./cmd
+```
 
+## Quick Start
+
+```bash
 # show CLI help
 go run ./cmd --help
 
@@ -47,6 +61,20 @@ sudo go run ./cmd scan --output devices.json
 
 # find free IPs (all interfaces, no limit)
 sudo go run ./cmd find --output free_ips.json
+
+# scan a specific interface with debug output
+sudo go run ./cmd scan --interface eth0 --debug --output devices.json
+
+# find 10 candidate free addresses with a custom worker count
+sudo go run ./cmd find --interface eth0 --count 10 --workers 128 --output free_ips.json
+```
+
+Windows PowerShell examples:
+
+```powershell
+.\arpmap.exe scan --interface "Wi-Fi" --output devices.json
+.\arpmap.exe scan --interface "Wi-Fi" --debug --workers 120 --attempts 1
+.\arpmap.exe find --interface "Wi-Fi" --count 10 --output free_ips.json
 ```
 
 ## Commands
@@ -56,7 +84,16 @@ sudo go run ./cmd find --output free_ips.json
 ```bash
 arpmap scan --interface eth0 --output devices.json
 arpmap scan --output devices.json
+arpmap scan --interface eth0 --debug --workers 128 --attempts 1
 ```
+
+Important flags:
+
+- `-i, --interface`: scan a specific interface by name
+- `-o, --output`: output JSON path, default `devices.json`
+- `--debug`: print timing, response metrics, and sampled response/no-response IPs
+- `-w, --workers`: concurrent probe workers, `0` uses the platform default
+- `-a, --attempts`: ARP probe attempts per target, default `1`
 
 Output schema:
 
@@ -79,7 +116,17 @@ Output schema:
 ```bash
 arpmap find --interface eth0 --count 10 --output free_ips.json
 arpmap find --output free_ips.json
+arpmap find --interface eth0 --count 10 --debug --attempts 1
 ```
+
+Important flags:
+
+- `-i, --interface`: scan a specific interface by name
+- `-o, --output`: output JSON path, default `free_ips.json`
+- `-c, --count`: maximum number of free IPs to return per subnet, `0` returns all
+- `--debug`: print timing, response metrics, and sampled response/no-response IPs
+- `-w, --workers`: concurrent probe workers, `0` uses the platform default
+- `-a, --attempts`: ARP probe attempts per target, default `1`
 
 Output schema:
 
@@ -95,29 +142,54 @@ Output schema:
 }
 ```
 
+`find` performs an ARP scan first, then reports addresses that did not respond. When `--count` is set, the scan can stop early once enough candidate free addresses have been identified.
+
+## Debug Output
+
+`--debug` is intended for operator troubleshooting and performance tuning. It prints scan settings, timing summaries, response counts, and sampled response/no-response IP addresses.
+
+Example:
+
+```text
+[INFO] Scanning interface Wi-Fi (192.168.1.0/24)
+[DEBUG] workers=64 attempts=1 targets=254
+[DEBUG] sample responding IPs: 192.168.1.1, 192.168.1.10, 192.168.1.20
+[DEBUG] sample non-responding IPs: 192.168.1.101, 192.168.1.102, 192.168.1.103
+[DEBUG] total_duration=2.14s responses=18 no_responses=236
+```
+
 ## Technical Details
 
-- Command wiring is in `internal/cmd` (Cobra); scan logic is in `internal/arp`.
-- Interface/subnet resolution is handled by `internal/iface`.
-- Raw socket backends are split by OS build tags:
-	- Linux: `AF_PACKET` implementation
-	- macOS: BPF implementation
-	- Windows: explicit unsupported-runtime stub for clear failure behavior
-- ARP replies are parsed from Ethernet frames and deduplicated as `ip -> mac`.
+- Command wiring is implemented with Cobra in `internal/cmd`.
+- Interface and subnet resolution is handled by `internal/iface`.
+- Scan and free-IP logic live in `internal/arp`.
+- Output DTOs live in `internal/output`.
+- ARP replies are deduplicated as `ip -> mac` before JSON is written.
+
+Backends by platform:
+
+- Linux: raw `AF_PACKET` socket with ARP filter attachment
+- macOS: BPF device backend
+- Windows: native `SendARP()` probing with per-target retry control
 
 ## Performance
 
 `arpmap` favors fast fan-out with predictable completion behavior.
 
-- Concurrency: up to 256 concurrent probe workers.
-- Reply collection window: 2 seconds after probe send completion.
-- Read polling deadline: 200ms.
+- Default workers:
+  - Linux/macOS: `256`
+  - Windows: `64`
+- Default probe attempts: `1`
+- Reply collection window for raw-socket backends: `2s` after probe dispatch completes
+- Read polling deadline for raw-socket backends: `200ms`
+- Retry spacing between repeated probes: `150ms`
 
 Practical implication:
 
-- Fastest possible scan completion is slightly above 2 seconds (plus send/parsing overhead).
-- `/24` networks (254 hosts) are typically handled in one send wave due worker count.
-- Actual runtime depends on interface speed, kernel scheduling, local ARP behavior, and privilege context.
+- Linux/macOS `/24` networks are typically handled in a single dispatch wave with default settings.
+- Windows throughput depends more directly on `SendARP()` latency and worker count.
+- Increasing `--workers` can reduce wall-clock time, but setting it too high may reduce stability on slower networks or hosts.
+- Increasing `--attempts` may improve discovery on noisy networks at the cost of extra runtime.
 
 To measure speed on your environment:
 
@@ -131,7 +203,8 @@ time sudo go run ./cmd scan --interface eth0 --output devices.json
 go mod tidy
 go build ./...
 go vet ./...
-go test ./... -v -race -cover
+golangci-lint run ./...
+go test ./... -v -cover
 ```
 
 ## Project Layout
@@ -154,7 +227,6 @@ arpmap/
 
 ## Documentation
 
-- [About](docs/about.md)
 - [Getting Started](docs/getting-started.md)
 - [Development Guide](docs/development.md)
 - [Architecture](docs/architecture.md)
