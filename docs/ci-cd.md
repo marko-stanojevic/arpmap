@@ -5,11 +5,13 @@
 ### `ci.yml`
 
 Triggers:
+
 - push to `main` (when Go source/module files change)
 - pull requests to `main`, `release/**`, `hotfix/**`
 - manual dispatch
 
 Pipeline:
+
 1. `lint`: runs `.github/actions/go-lint`
 2. `test`: runs `.github/actions/go-test` on Linux, macOS, and Windows
 3. `build`: runs `.github/actions/go-build` and uploads debug artifacts
@@ -17,13 +19,15 @@ Pipeline:
 ### `release.yml`
 
 Trigger:
+
 - manual dispatch (`workflow_dispatch`)
 
 Pipeline:
+
 1. run `.github/actions/go-release`
 2. create/push release tag if missing
 3. generate release notes
-4. publish GitHub release with `dist/*` artifacts
+4. publish GitHub release with `.tar.gz`, `.zip`, `.deb`, and `checksums.txt` artifacts
 
 ## Local Validation Commands
 
@@ -42,8 +46,13 @@ Use semantic tags (`vMAJOR.MINOR.PATCH`) and conventional commits for clearer ge
 ## Composite Actions
 
 | Action | Purpose |
-|--------|---------|
+| ------ | ------- |
 | `go-lint` | Run `golangci-lint` |
 | `go-test` | Run tests with race detector and coverage |
 | `go-build` | Build binaries/artifacts |
 | `go-release` | Run release build and publish assets |
+
+## Packaging Notes
+
+- `.deb` packages are generated from `.goreleaser.yml` using nFPM.
+- GitHub Releases remain the primary distribution channel for archives and Debian packages.
