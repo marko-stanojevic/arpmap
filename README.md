@@ -10,6 +10,7 @@
 `arpmap` is a cross-platform Go CLI for ARP-based host discovery on local IPv4 subnets.
 
 It provides two primary workflows:
+
 - `scan`: discover responding hosts and write `IP -> MAC` mappings to JSON.
 - `find`: identify candidate free IP addresses that did not respond to ARP probes.
 
@@ -41,6 +42,15 @@ It provides two primary workflows:
 ### Release binaries
 
 Download the latest archives from the GitHub Releases page and unpack the archive for your platform.
+
+### Ubuntu and Debian
+
+Install from a released `.deb` package:
+
+```bash
+wget https://github.com/marko-stanojevic/arpmap/releases/download/vX.Y.Z/arpmap_X.Y.Z_linux_amd64.deb
+sudo apt install ./arpmap_X.Y.Z_linux_amd64.deb
+```
 
 ### Build from source
 
@@ -99,15 +109,15 @@ Output schema:
 
 ```json
 {
-	"interfaces": [
-		{
-			"interface": "eth0",
-			"subnet": "192.168.1.0/24",
-			"devices": [
-				{ "ip": "192.168.1.10", "mac": "aa:bb:cc:dd:ee:ff" }
-			]
-		}
-	]
+  "interfaces": [
+    {
+      "interface": "eth0",
+      "subnet": "192.168.1.0/24",
+      "devices": [
+        { "ip": "192.168.1.10", "mac": "aa:bb:cc:dd:ee:ff" }
+      ]
+    }
+  ]
 }
 ```
 
@@ -132,13 +142,13 @@ Output schema:
 
 ```json
 {
-	"interfaces": [
-		{
-			"interface": "eth0",
-			"subnet": "192.168.1.0/24",
-			"free_ips": ["192.168.1.20", "192.168.1.21"]
-		}
-	]
+  "interfaces": [
+    {
+      "interface": "eth0",
+      "subnet": "192.168.1.0/24",
+      "free_ips": ["192.168.1.20", "192.168.1.21"]
+    }
+  ]
 }
 ```
 
@@ -206,6 +216,11 @@ go vet ./...
 golangci-lint run ./...
 go test ./... -v -cover
 ```
+
+## Packaging
+
+- GitHub releases publish macOS/Linux archives, Windows zip archives, Debian `.deb` packages, and `checksums.txt`.
+- Debian packages are generated with GoReleaser nFPM packaging.
 
 ## Project Layout
 

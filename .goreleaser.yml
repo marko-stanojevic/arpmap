@@ -24,11 +24,29 @@ builds:
 
 archives:
   - id: default
-    format: tar.gz
+    formats:
+      - tar.gz
     format_overrides:
       - goos: windows
-        format: zip
+        formats:
+          - zip
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+nfpms:
+  - id: linux-packages
+    ids:
+      - arpmap
+    package_name: arpmap
+    file_name_template: "{{ .ConventionalFileName }}"
+    homepage: "https://github.com/marko-stanojevic/arpmap"
+    maintainer: "Marko Stanojevic <marko-stanojevic@users.noreply.github.com>"
+    description: "Cross-platform ARP-based host discovery CLI"
+    vendor: "Marko Stanojevic"
+    bindir: /usr/bin
+    section: net
+    priority: optional
+    formats:
+      - deb
 
 checksum:
   name_template: "checksums.txt"
