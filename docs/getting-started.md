@@ -94,5 +94,4 @@ Example:
 ## Next Steps
 
 - [Architecture](architecture.md)
-- [CI/CD & Release Guide](ci-cd.md)
 - [Contributing](../CONTRIBUTING.md)

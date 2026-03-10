@@ -281,7 +281,6 @@ time sudo arpmap scan --interface eth0 --output devices.json
 
 - [Getting Started](docs/getting-started.md)
 - [Architecture](docs/architecture.md)
-- [CI/CD & Release Guide](docs/ci-cd.md)
 - [Contributing](CONTRIBUTING.md)
 
 ## Contributing
