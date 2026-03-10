@@ -41,7 +41,7 @@ func openRawConn(ifc *net.Interface) (net.Conn, error) {
 		Len:    uint16(len(filter)),
 		Filter: &filter[0],
 	}
-	syscall.Syscall6( //nolint:errcheck
+	_, _, errno := syscall.Syscall6(
 		syscall.SYS_SETSOCKOPT,
 		uintptr(fd),
 		uintptr(syscall.SOL_SOCKET),
@@ -50,6 +50,10 @@ func openRawConn(ifc *net.Interface) (net.Conn, error) {
 		uintptr(unsafe.Sizeof(prog)),
 		0,
 	)
+	if errno != 0 {
+		syscall.Close(fd)
+		return nil, fmt.Errorf("SO_ATTACH_FILTER: %w", errno)
+	}
 
 	return &rawConn{fd: fd}, nil
 }
@@ -65,7 +69,9 @@ type rawConn struct {
 func (c *rawConn) Read(b []byte) (int, error) {
 	if !c.deadline.IsZero() {
 		tv := syscall.NsecToTimeval(time.Until(c.deadline).Nanoseconds())
-		syscall.SetsockoptTimeval(c.fd, syscall.SOL_SOCKET, syscall.SO_RCVTIMEO, &tv) //nolint:errcheck
+		if err := syscall.SetsockoptTimeval(c.fd, syscall.SOL_SOCKET, syscall.SO_RCVTIMEO, &tv); err != nil {
+			return 0, &net.OpError{Op: "setsockopt", Net: "raw", Err: err}
+		}
 	}
 	n, err := syscall.Read(c.fd, b)
 	if err != nil {
