@@ -40,7 +40,7 @@ const (
 	windowsNoResponseLogCap = 10
 )
 
-func scanWindows(info iface.Info, debug bool, workers int) ([]output.Device, error) {
+func scanWindows(info iface.Info, debug bool, workers int, stopAtFreeCount int) ([]output.Device, error) {
 	if err := initializeSendARP(); err != nil {
 		return nil, fmt.Errorf("initializing SendARP: %w", err)
 	}
@@ -69,14 +69,36 @@ func scanWindows(info iface.Info, debug bool, workers int) ([]output.Device, err
 	noResponseCount := 0
 	errorCount := 0
 	errCh := make(chan error, 1)
+	stopCh := make(chan struct{}) // Signal to stop probing early
+	shouldStop := func() bool {
+		select {
+		case <-stopCh:
+			return true
+		default:
+			return false
+		}
+	}
 
 	for _, ip := range targets {
+		// Early exit check before starting new goroutine
+		if stopAtFreeCount > 0 && noResponseCount >= stopAtFreeCount {
+			close(stopCh)
+		}
+		if shouldStop() {
+			break
+		}
+
 		target := cloneIP(ip)
 		wg.Add(1)
 		sem <- struct{}{}
 		go func() {
 			defer wg.Done()
 			defer func() { <-sem }()
+
+			// Check stop signal at the beginning
+			if shouldStop() {
+				return
+			}
 
 			mac, found, err := resolveMACWithSendARPRetries(target, windowsProbeAttempts)
 
@@ -103,6 +125,19 @@ func scanWindows(info iface.Info, debug bool, workers int) ([]output.Device, err
 			if !found {
 				mu.Lock()
 				noResponseCount++
+				freeCount := noResponseCount
+				minInUseNeeded := len(targets) - stopAtFreeCount
+				if stopAtFreeCount > 0 && debug && freeCount >= stopAtFreeCount {
+					fmt.Fprintf(os.Stderr, "[DEBUG] [windows] Found %d free IPs (probed: %d, in-use: %d)\n", freeCount, probedCount, len(devicesByIP))
+				}
+				// Signal early exit if we have enough free IPs
+				if stopAtFreeCount > 0 && freeCount >= stopAtFreeCount && len(devicesByIP) > minInUseNeeded {
+					select {
+					case <-stopCh:
+					default:
+						close(stopCh)
+					}
+				}
 				if debug && len(noResponseIPs) < windowsNoResponseLogCap {
 					noResponseIPs = append(noResponseIPs, target.String())
 				}

@@ -1,4 +1,5 @@
 // Package output defines the JSON output structures for arpmap.
+
 package output
 
 // Device represents a discovered network host.

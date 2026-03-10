@@ -1,4 +1,5 @@
 // Package iface resolves network interfaces and their associated subnets.
+
 package iface
 
 import (
