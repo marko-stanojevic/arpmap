@@ -22,8 +22,10 @@ import (
 )
 
 const (
-	// workerCount limits concurrent ARP senders to avoid fd exhaustion.
+	// workerCount is the default sender concurrency on non-Windows platforms.
 	workerCount = 256
+	// windowsWorkerCount is the default sender concurrency on Windows.
+	windowsWorkerCount = 64
 	// debugSampleIPLogCap limits the number of sample IPs printed in debug output.
 	debugSampleIPLogCap = 3
 	// defaultProbeAttempts is the number of ARP probes sent per target by default.
@@ -237,12 +239,16 @@ func scan(info iface.Info, cfg *ScanConfig) ([]output.Device, error) {
 	}()
 
 	// Send ARP requests with bounded concurrency.
-	workers := workerCount
+	workers := defaultWorkerCount()
 	if cfg.Workers > 0 {
 		workers = cfg.Workers
 	}
 	if debug {
-		fmt.Fprintf(os.Stderr, "[DEBUG] Dispatch settings | workers=%d\n", workers)
+		profile := "auto"
+		if cfg.Workers > 0 {
+			profile = "explicit"
+		}
+		fmt.Fprintf(os.Stderr, "[DEBUG] Dispatch settings | workers=%d source=%s\n", workers, profile)
 	}
 	sem := make(chan struct{}, workers)
 	var wg sync.WaitGroup
@@ -501,4 +507,11 @@ func sortDevices(devices []output.Device) {
 		}
 		return devices[i].IP < devices[j].IP
 	})
+}
+
+func defaultWorkerCount() int {
+	if runtime.GOOS == "windows" {
+		return windowsWorkerCount
+	}
+	return workerCount
 }

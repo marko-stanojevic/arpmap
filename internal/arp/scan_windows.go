@@ -34,7 +34,6 @@ var (
 )
 
 const (
-	windowsWorkerCount      = 32
 	windowsProbeAttempts    = 1
 	windowsProbeRetryDelay  = 150 * time.Millisecond
 	windowsResponseLogCap   = 3
@@ -55,6 +54,7 @@ func scanWindows(info iface.Info, debug bool, workers int, attempts int, stopAtF
 		return nil, nil
 	}
 	targetDuration := time.Since(targetStart)
+	explicitWorkers := workers > 0
 	if workers <= 0 {
 		workers = windowsWorkerCount
 	}
@@ -63,9 +63,13 @@ func scanWindows(info iface.Info, debug bool, workers int, attempts int, stopAtF
 	}
 
 	if debug {
+		workerSource := "auto"
+		if explicitWorkers {
+			workerSource = "explicit"
+		}
 		fmt.Fprintf(os.Stderr, "[DEBUG] [windows] Scan started | mode=SendARP\n")
 		fmt.Fprintf(os.Stderr, "[DEBUG] [windows] Startup timings | init=%v target_expansion=%v\n", initDuration, targetDuration)
-		fmt.Fprintf(os.Stderr, "[DEBUG] [windows] Scan parameters | targets=%d workers=%d attempts=%d\n", len(targets), workers, attempts)
+		fmt.Fprintf(os.Stderr, "[DEBUG] [windows] Scan parameters | targets=%d workers=%d attempts=%d worker_source=%s\n", len(targets), workers, attempts, workerSource)
 	}
 
 	sem := make(chan struct{}, workers)

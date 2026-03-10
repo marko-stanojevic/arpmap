@@ -35,7 +35,7 @@ func init() {
 	scanCmd.Flags().StringVarP(&scanInterface, "interface", "i", "", "Network interface to scan (default: all non-loopback interfaces)")
 	scanCmd.Flags().StringVarP(&scanOutput, "output", "o", "devices.json", "Path to the output JSON file")
 	scanCmd.Flags().BoolVar(&scanDebug, "debug", false, "Enable debug logging")
-	scanCmd.Flags().IntVarP(&scanWorkers, "workers", "w", 0, "Number of concurrent probe workers (0 = platform default)")
+	scanCmd.Flags().IntVarP(&scanWorkers, "workers", "w", 0, "Number of concurrent probe workers (0 = auto default by platform/interface type)")
 	scanCmd.Flags().IntVarP(&scanAttempts, "attempts", "a", 1, "Number of ARP probe attempts per target (default: 1)")
 }
 

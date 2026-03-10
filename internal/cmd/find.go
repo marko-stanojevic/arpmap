@@ -37,7 +37,7 @@ func init() {
 	findCmd.Flags().StringVarP(&findOutput, "output", "o", "free_ips.json", "Path to the output JSON file")
 	findCmd.Flags().IntVarP(&findCount, "count", "c", 0, "Maximum number of free IPs to return per subnet (0 = all)")
 	findCmd.Flags().BoolVar(&findDebug, "debug", false, "Enable debug logging")
-	findCmd.Flags().IntVarP(&findWorkers, "workers", "w", 0, "Number of concurrent probe workers (0 = platform default)")
+	findCmd.Flags().IntVarP(&findWorkers, "workers", "w", 0, "Number of concurrent probe workers (0 = auto default by platform/interface type)")
 	findCmd.Flags().IntVarP(&findAttempts, "attempts", "a", 1, "Number of ARP probe attempts per target (default: 1)")
 }
 
