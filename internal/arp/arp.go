@@ -70,7 +70,7 @@ func buildEthernetFrame(src, dst net.HardwareAddr, payload []byte) []byte {
 
 // ScanConfig holds options for the Scan operation.
 type ScanConfig struct {
-	Debug bool
+	Debug   bool
 	Workers int
 }
 
