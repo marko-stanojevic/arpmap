@@ -6,23 +6,26 @@ Thanks for contributing. This project focuses on ARP-based subnet discovery and 
 
 1. Fork and clone the repository.
 2. Create a branch: `git checkout -b feat/your-feature`.
-3. Implement your change.
-4. Run checks:
+3. Install Go 1.22+ and make sure `go` is available on your `PATH`.
+4. Install `golangci-lint` if you plan to run the full local validation set.
+5. Implement your change.
+6. Run checks:
 
-	```bash
-	go mod tidy
-	go build ./...
-	go vet ./...
-	go test ./... -v -race -cover
-	golangci-lint run ./...
-	```
+```bash
+go mod tidy
+go build ./...
+go vet ./...
+go test ./... -v -race -cover
+golangci-lint run ./...
+```
 
-5. Commit with a conventional message.
-6. Open a pull request.
+1. Commit with a conventional message.
+2. Open a pull request.
 
 ## Contribution Scope
 
 Useful contributions include:
+
 - ARP scan reliability and parsing improvements
 - Interface/subnet resolution improvements
 - Better command UX and validation

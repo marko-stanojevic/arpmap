@@ -2,9 +2,6 @@
 
 ## Prerequisites
 
-- Go 1.22+
-- Git
-- `golangci-lint` (recommended)
 - Linux or macOS environment with raw socket permission (`root` or `CAP_NET_RAW`), or
 - Windows with native `SendARP()` support available through `iphlpapi.dll`
 
@@ -16,43 +13,56 @@
 
 ## Quick Start
 
+Install `arpmap` from a release artifact first, then run it from your shell.
+
+Linux/macOS example:
+
 ```bash
-git clone https://github.com/marko-stanojevic/arpmap.git
-cd arpmap
-
-go mod tidy
-go build -o dist/arpmap ./cmd
-
-# show commands
-go run ./cmd --help
-
-# scan for active hosts
-sudo go run ./cmd scan --output devices.json
-
-# find candidate free IPs
-sudo go run ./cmd find --count 10 --output free_ips.json
-
-# scan a specific interface with debug output
-sudo go run ./cmd scan --interface eth0 --debug --attempts 1 --output devices.json
-
-# find free IPs with a custom worker count
-sudo go run ./cmd find --interface eth0 --count 10 --workers 128 --output free_ips.json
+tar -xzf arpmap_X.Y.Z_linux_amd64.tar.gz
+sudo install arpmap /usr/local/bin/arpmap
+arpmap --help
 ```
 
-Windows PowerShell examples:
+Ubuntu/Debian example:
+
+```bash
+wget https://github.com/marko-stanojevic/arpmap/releases/download/vX.Y.Z/arpmap_X.Y.Z_linux_amd64.deb
+sudo apt install ./arpmap_X.Y.Z_linux_amd64.deb
+arpmap --help
+```
+
+Windows PowerShell install example:
+
+```powershell
+Expand-Archive .\arpmap_X.Y.Z_windows_amd64.zip -DestinationPath .\arpmap
+.\arpmap\arpmap.exe --help
+```
+
+Common usage examples:
+
+```bash
+# show commands
+arpmap --help
+
+# scan for active hosts
+sudo arpmap scan --output devices.json
+
+# find candidate free IPs
+sudo arpmap find --count 10 --output free_ips.json
+
+# scan a specific interface with debug output
+sudo arpmap scan --interface eth0 --debug --attempts 1 --output devices.json
+
+# find free IPs with a custom worker count
+sudo arpmap find --interface eth0 --count 10 --workers 128 --output free_ips.json
+```
+
+Windows PowerShell usage examples:
 
 ```powershell
 .\dist\arpmap.exe scan --interface "Wi-Fi" --output devices.json
 .\dist\arpmap.exe scan --interface "Wi-Fi" --debug --workers 120 --attempts 1
 .\dist\arpmap.exe find --interface "Wi-Fi" --count 10 --output free_ips.json
-```
-
-## Verify Your Setup
-
-```bash
-go vet ./...
-golangci-lint run ./...
-go test ./... -v -cover
 ```
 
 ## Default Runtime Settings
@@ -81,22 +91,8 @@ Example:
 [DEBUG] total_duration=2.14s responses=18 no_responses=236
 ```
 
-## Project Layout
-
-```text
-arpmap/
-├── cmd/
-│   └── main.go
-├── internal/
-│   ├── arp/      # ARP packet building, sending, reply collection
-│   ├── cmd/      # Cobra command definitions (root/scan/find)
-│   ├── iface/    # Interface and IPv4 subnet resolution
-│   └── output/   # JSON output DTOs
-└── docs/
-```
-
 ## Next Steps
 
-- [Development Guide](development.md)
 - [Architecture](architecture.md)
 - [CI/CD & Release Guide](ci-cd.md)
+- [Contributing](../CONTRIBUTING.md)

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -79,6 +80,38 @@ func assertContainsAll(t *testing.T, got string, wants ...string) {
 			t.Fatalf("output missing %q\nfull output:\n%s", want, got)
 		}
 	}
+}
+
+func captureStderr(t *testing.T, fn func()) string {
+	t.Helper()
+
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe() unexpected error: %v", err)
+	}
+
+	originalStderr := os.Stderr
+	os.Stderr = writer
+	defer func() {
+		os.Stderr = originalStderr
+	}()
+
+	fn()
+
+	if err := writer.Close(); err != nil {
+		t.Fatalf("writer.Close() unexpected error: %v", err)
+	}
+
+	data, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatalf("io.ReadAll() unexpected error: %v", err)
+	}
+
+	if err := reader.Close(); err != nil {
+		t.Fatalf("reader.Close() unexpected error: %v", err)
+	}
+
+	return string(data)
 }
 
 func TestNewRootCmd_RegistersSubcommands(t *testing.T) {
@@ -336,6 +369,65 @@ func TestRunScan_WritesResults(t *testing.T) {
 	if len(result.Interfaces[0].Devices) != 1 {
 		t.Fatalf("devices len = %d, want 1", len(result.Interfaces[0].Devices))
 	}
+}
+
+func TestRunScan_EmitsInfoLogs(t *testing.T) {
+	a := newTestApp()
+	info := iface.Info{Name: "eth0", CIDRs: "192.168.1.0/24"}
+	a.resolveInterfaces = func(name string) ([]iface.Info, error) {
+		return []iface.Info{info}, nil
+	}
+	a.scanNetwork = func(info iface.Info, opts ...arp.ScanOption) ([]output.Device, error) {
+		return []output.Device{{IP: "192.168.1.10", MAC: "aa:bb:cc:dd:ee:ff"}}, nil
+	}
+
+	options := scanOptions{
+		Output:    filepath.Join(t.TempDir(), "devices.json"),
+		Interface: "eth0",
+		Attempts:  1,
+	}
+
+	stderr := captureStderr(t, func() {
+		if err := a.runScan(a.newScanCmd(), nil, options); err != nil {
+			t.Fatalf("runScan() unexpected error: %v", err)
+		}
+	})
+
+	assertContainsAll(t, stderr,
+		"[INFO] Starting ARP scan on interface=eth0 subnets=192.168.1.0/24",
+		"[INFO] Completed ARP scan on interface=eth0 discovered_devices=1",
+		"[INFO] Scan results written to "+options.Output,
+	)
+}
+
+func TestRunFind_EmitsInfoLogs(t *testing.T) {
+	a := newTestApp()
+	info := iface.Info{Name: "eth0", CIDRs: "192.168.1.0/24"}
+	a.resolveInterfaces = func(name string) ([]iface.Info, error) {
+		return []iface.Info{info}, nil
+	}
+	a.findFreeIPs = func(info iface.Info, max int, opts ...arp.ScanOption) ([]string, error) {
+		return []string{"192.168.1.120", "192.168.1.121"}, nil
+	}
+
+	options := findOptions{
+		Output:    filepath.Join(t.TempDir(), "free_ips.json"),
+		Interface: "eth0",
+		Count:     2,
+		Attempts:  1,
+	}
+
+	stderr := captureStderr(t, func() {
+		if err := a.runFind(a.newFindCmd(), nil, options); err != nil {
+			t.Fatalf("runFind() unexpected error: %v", err)
+		}
+	})
+
+	assertContainsAll(t, stderr,
+		"[INFO] Starting free-IP discovery on interface=eth0 subnets=192.168.1.0/24",
+		"[INFO] Completed free-IP discovery on interface=eth0 free_addresses=2",
+		"[INFO] Free-IP results written to "+options.Output,
+	)
 }
 
 func TestRunFind_AllFailuresReturnError(t *testing.T) {
