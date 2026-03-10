@@ -5,7 +5,14 @@
 - Go 1.22+
 - Git
 - `golangci-lint` (recommended)
-- Linux or macOS environment with raw socket permission (`root` or `CAP_NET_RAW`)
+- Linux or macOS environment with raw socket permission (`root` or `CAP_NET_RAW`), or
+- Windows with native `SendARP()` support available through `iphlpapi.dll`
+
+## Platform Notes
+
+- Linux: `scan` and `find` use raw `AF_PACKET` sockets.
+- macOS: `scan` and `find` use the BPF backend.
+- Windows: `scan` and `find` use native `SendARP()` probes and do not require CGO.
 
 ## Quick Start
 
@@ -14,7 +21,7 @@ git clone https://github.com/marko-stanojevic/arpmap.git
 cd arpmap
 
 go mod tidy
-go build ./...
+go build -o dist/arpmap ./cmd
 
 # show commands
 go run ./cmd --help
@@ -24,19 +31,55 @@ sudo go run ./cmd scan --output devices.json
 
 # find candidate free IPs
 sudo go run ./cmd find --count 10 --output free_ips.json
+
+# scan a specific interface with debug output
+sudo go run ./cmd scan --interface eth0 --debug --attempts 1 --output devices.json
+
+# find free IPs with a custom worker count
+sudo go run ./cmd find --interface eth0 --count 10 --workers 128 --output free_ips.json
+```
+
+Windows PowerShell examples:
+
+```powershell
+.\dist\arpmap.exe scan --interface "Wi-Fi" --output devices.json
+.\dist\arpmap.exe scan --interface "Wi-Fi" --debug --workers 120 --attempts 1
+.\dist\arpmap.exe find --interface "Wi-Fi" --count 10 --output free_ips.json
 ```
 
 ## Verify Your Setup
 
 ```bash
 go vet ./...
-go test ./... -v -race -cover
+golangci-lint run ./...
+go test ./... -v -cover
 ```
+
+## Default Runtime Settings
+
+- Default worker count is `256` on Linux/macOS and `64` on Windows.
+- Default ARP attempts per target is `1`.
+- Set `--workers` to override concurrency.
+- Set `--attempts` to retry noisy or inconsistent targets.
 
 ## Typical Output Files
 
 - `devices.json`: per-interface list of discovered `ip` and `mac`
 - `free_ips.json`: per-interface list of non-responding host IPs
+
+## Debug Output
+
+With `--debug`, `arpmap` prints scan configuration, timing summaries, response counts, and small sample lists for responding and non-responding IPs. This is useful when tuning worker counts or troubleshooting Windows `SendARP()` latency.
+
+Example:
+
+```text
+[INFO] Scanning interface Wi-Fi (192.168.1.0/24)
+[DEBUG] workers=64 attempts=1 targets=254
+[DEBUG] sample responding IPs: 192.168.1.1, 192.168.1.10, 192.168.1.20
+[DEBUG] sample non-responding IPs: 192.168.1.101, 192.168.1.102, 192.168.1.103
+[DEBUG] total_duration=2.14s responses=18 no_responses=236
+```
 
 ## Project Layout
 
