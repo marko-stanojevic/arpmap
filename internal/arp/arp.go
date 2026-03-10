@@ -276,7 +276,7 @@ func scan(info iface.Info, cfg *ScanConfig) ([]output.Device, error) {
 		go func(target net.IP) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			sendARPWithRetries(conn, info.Iface, target, attempts, debug)
+			sendARPRequestWithRetries(conn, info.Iface, target, attempts, debug)
 		}(ip)
 	}
 waitForProbes:
@@ -307,9 +307,10 @@ waitForProbes:
 	}
 	sortDevices(result)
 
+	dispatchedTargets := targets[:probesSent]
 	responseSampleIPs := make([]string, 0, debugSampleIPLogCap)
 	noResponseSampleIPs := make([]string, 0, debugSampleIPLogCap)
-	for _, target := range targets {
+	for _, target := range dispatchedTargets {
 		targetIP := target.String()
 		if _, ok := devices[targetIP]; ok {
 			if len(responseSampleIPs) < debugSampleIPLogCap {
@@ -438,7 +439,7 @@ func incIP(ip net.IP) {
 	}
 }
 
-func sendARP(conn net.Conn, ifc *net.Interface, target net.IP, debug bool) {
+func sendARPRequest(conn net.Conn, ifc *net.Interface, target net.IP, debug bool) {
 	srcMAC := ifc.HardwareAddr
 	if len(srcMAC) == 0 {
 		return
@@ -478,17 +479,32 @@ func sendARP(conn net.Conn, ifc *net.Interface, target net.IP, debug bool) {
 	}
 }
 
-func sendARPWithRetries(conn net.Conn, ifc *net.Interface, target net.IP, attempts int, debug bool) {
+func sendARPRequestWithRetries(conn net.Conn, ifc *net.Interface, target net.IP, attempts int, debug bool) {
+	_, _ = retryProbeAttempts(attempts, probeRetryDelay, func() (bool, error) {
+		sendARPRequest(conn, ifc, target, debug)
+		return false, nil
+	})
+}
+
+func retryProbeAttempts(attempts int, delay time.Duration, operation func() (bool, error)) (bool, error) {
 	if attempts <= 0 {
 		attempts = defaultProbeAttempts
 	}
 
 	for attempt := 1; attempt <= attempts; attempt++ {
-		sendARP(conn, ifc, target, debug)
+		done, err := operation()
+		if err != nil {
+			return false, err
+		}
+		if done {
+			return true, nil
+		}
 		if attempt < attempts {
-			time.Sleep(probeRetryDelay)
+			time.Sleep(delay)
 		}
 	}
+
+	return false, nil
 }
 
 func isTimeout(err error) bool {

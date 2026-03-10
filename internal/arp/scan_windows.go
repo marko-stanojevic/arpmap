@@ -34,8 +34,6 @@ var (
 )
 
 const (
-	windowsProbeAttempts    = 1
-	windowsProbeRetryDelay  = 150 * time.Millisecond
 	windowsResponseLogCap   = 3
 	windowsNoResponseLogCap = 3
 )
@@ -85,6 +83,12 @@ func scanWindows(info iface.Info, debug bool, workers int, attempts int, stopAtF
 	errorCount := 0
 	errCh := make(chan error, 1)
 	stopCh := make(chan struct{}) // Signal to stop probing early
+	var stopOnce sync.Once
+	closeStop := func() {
+		stopOnce.Do(func() {
+			close(stopCh)
+		})
+	}
 	shouldStop := func() bool {
 		select {
 		case <-stopCh:
@@ -94,12 +98,8 @@ func scanWindows(info iface.Info, debug bool, workers int, attempts int, stopAtF
 		}
 	}
 
-	dispatchStart := time.Now()
+	enqueueStart := time.Now()
 	for _, ip := range targets {
-		// Early exit check before starting new goroutine
-		if stopAtFreeCount > 0 && noResponseCount >= stopAtFreeCount {
-			close(stopCh)
-		}
 		if shouldStop() {
 			break
 		}
@@ -116,7 +116,7 @@ func scanWindows(info iface.Info, debug bool, workers int, attempts int, stopAtF
 				return
 			}
 
-			mac, found, err := resolveMACWithSendARPRetries(target, attempts)
+			mac, found, err := resolveMACWithRetries(target, attempts)
 
 			mu.Lock()
 			probedCount++
@@ -142,17 +142,12 @@ func scanWindows(info iface.Info, debug bool, workers int, attempts int, stopAtF
 				mu.Lock()
 				noResponseCount++
 				freeCount := noResponseCount
-				minInUseNeeded := len(targets) - stopAtFreeCount
 				if stopAtFreeCount > 0 && debug && freeCount >= stopAtFreeCount {
 					fmt.Fprintf(os.Stderr, "[DEBUG] [windows] Early-exit threshold reached | free=%d probed=%d in_use=%d\n", freeCount, probedCount, len(devicesByIP))
 				}
 				// Signal early exit if we have enough free IPs
-				if stopAtFreeCount > 0 && freeCount >= stopAtFreeCount && len(devicesByIP) > minInUseNeeded {
-					select {
-					case <-stopCh:
-					default:
-						close(stopCh)
-					}
+				if stopAtFreeCount > 0 && freeCount >= stopAtFreeCount {
+					closeStop()
 				}
 				if debug && len(noResponseIPs) < windowsNoResponseLogCap {
 					noResponseIPs = append(noResponseIPs, target.String())
@@ -170,7 +165,7 @@ func scanWindows(info iface.Info, debug bool, workers int, attempts int, stopAtF
 			mu.Unlock()
 		}()
 	}
-	dispatchDuration := time.Since(dispatchStart)
+	enqueueDuration := time.Since(enqueueStart)
 
 	wg.Wait()
 	close(errCh)
@@ -180,7 +175,7 @@ func scanWindows(info iface.Info, debug bool, workers int, attempts int, stopAtF
 
 	if debug {
 		totalDuration := time.Since(scanStart)
-		fmt.Fprintf(os.Stderr, "[DEBUG] [windows] Timing summary | dispatch=%v total=%v\n", dispatchDuration, totalDuration)
+		fmt.Fprintf(os.Stderr, "[DEBUG] [windows] Timing summary | enqueue=%v total=%v\n", enqueueDuration, totalDuration)
 		fmt.Fprintf(os.Stderr, "[DEBUG] [windows] Scan summary | probed=%d responded=%d no_response=%d errors=%d\n", probedCount, responseCount, noResponseCount, errorCount)
 		if len(responseIPs) > 0 {
 			fmt.Fprintf(os.Stderr, "[DEBUG] [windows] Sample IP addresses responding to ARP requests: %v\n", responseIPs)
@@ -204,22 +199,25 @@ func scanWindows(info iface.Info, debug bool, workers int, attempts int, stopAtF
 	return devices, nil
 }
 
-func resolveMACWithSendARPRetries(target net.IP, attempts int) (net.HardwareAddr, bool, error) {
-	if attempts < 1 {
-		attempts = 1
-	}
+func resolveMACWithRetries(target net.IP, attempts int) (net.HardwareAddr, bool, error) {
+	var resolvedMAC net.HardwareAddr
 
-	for attempt := 1; attempt <= attempts; attempt++ {
+	found, err := retryProbeAttempts(attempts, probeRetryDelay, func() (bool, error) {
 		mac, found, err := resolveMACWithSendARP(target)
 		if err != nil {
-			return nil, false, err
+			return false, err
 		}
 		if found {
-			return mac, true, nil
+			resolvedMAC = mac
+			return true, nil
 		}
-		if attempt < attempts {
-			time.Sleep(windowsProbeRetryDelay)
-		}
+		return false, nil
+	})
+	if err != nil {
+		return nil, false, err
+	}
+	if found {
+		return resolvedMAC, true, nil
 	}
 
 	return nil, false, nil
