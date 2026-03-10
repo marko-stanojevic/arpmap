@@ -7,7 +7,9 @@
 [![Go Version](https://img.shields.io/badge/Go-1.22%2B-00ADD8?logo=go)](https://go.dev/)
 [![OS Support](https://img.shields.io/badge/OS-Linux%20%7C%20macOS%20%7C%20Windows-blue)](#platform-support)
 
-`arpmap` is a cross-platform Go CLI for ARP-based host discovery on local IPv4 subnets.
+![arpmap demo](docs/assets/arpmap-demo.gif)
+
+`arpmap` is a cross-platform CLI for ARP-based host discovery on local IPv4 subnets.
 
 It provides two primary workflows:
 
@@ -27,7 +29,6 @@ It provides two primary workflows:
 
 ## Requirements
 
-- Go 1.22+
 - Linux/macOS with permissions for raw sockets (`root` or `CAP_NET_RAW`)
 - Windows scan/find support via native `SendARP()` (`iphlpapi.dll`) without CGO
 
@@ -41,7 +42,22 @@ It provides two primary workflows:
 
 ### Release binaries
 
-Download the latest archives from the GitHub Releases page and unpack the archive for your platform.
+Download the latest archive for your platform from the GitHub Releases page, extract it, and place `arpmap` somewhere on your `PATH`.
+
+Example for Linux/macOS:
+
+```bash
+tar -xzf arpmap_X.Y.Z_linux_amd64.tar.gz
+sudo install arpmap /usr/local/bin/arpmap
+arpmap --help
+```
+
+Example for Windows PowerShell:
+
+```powershell
+Expand-Archive .\arpmap_X.Y.Z_windows_amd64.zip -DestinationPath .\arpmap
+.\arpmap\arpmap.exe --help
+```
 
 ### Ubuntu and Debian
 
@@ -52,31 +68,25 @@ wget https://github.com/marko-stanojevic/arpmap/releases/download/vX.Y.Z/arpmap_
 sudo apt install ./arpmap_X.Y.Z_linux_amd64.deb
 ```
 
-### Build from source
-
-```bash
-git clone https://github.com/marko-stanojevic/arpmap.git
-cd arpmap
-go build -o dist/arpmap ./cmd
-```
-
 ## Quick Start
+
+The commands below assume `arpmap` is already installed from a release artifact and available on your `PATH`.
 
 ```bash
 # show CLI help
-go run ./cmd --help
+arpmap --help
 
 # scan all eligible interfaces
-sudo go run ./cmd scan --output devices.json
+sudo arpmap scan --output devices.json
 
 # find free IPs (all interfaces, no limit)
-sudo go run ./cmd find --output free_ips.json
+sudo arpmap find --output free_ips.json
 
 # scan a specific interface with debug output
-sudo go run ./cmd scan --interface eth0 --debug --output devices.json
+sudo arpmap scan --interface eth0 --debug --output devices.json
 
 # find 10 candidate free addresses with a custom worker count
-sudo go run ./cmd find --interface eth0 --count 10 --workers 128 --output free_ips.json
+sudo arpmap find --interface eth0 --count 10 --workers 128 --output free_ips.json
 ```
 
 Windows PowerShell examples:
@@ -105,7 +115,7 @@ Important flags:
 - `-w, --workers`: concurrent probe workers, `0` uses the platform default
 - `-a, --attempts`: ARP probe attempts per target, default `1`
 
-Output schema:
+Sample output:
 
 ```json
 {
@@ -114,7 +124,17 @@ Output schema:
       "interface": "eth0",
       "subnet": "192.168.1.0/24",
       "devices": [
-        { "ip": "192.168.1.10", "mac": "aa:bb:cc:dd:ee:ff" }
+        { "ip": "192.168.1.1", "mac": "dc:a6:32:00:11:02" },
+        { "ip": "192.168.1.10", "mac": "48:21:0b:22:7f:31" },
+        { "ip": "192.168.1.44", "mac": "84:3a:4b:10:45:99" }
+      ]
+    },
+    {
+      "interface": "wlan0",
+      "subnet": "10.0.0.0/24",
+      "devices": [
+        { "ip": "10.0.0.1", "mac": "3c:52:82:2a:91:10" },
+        { "ip": "10.0.0.23", "mac": "f0:2f:74:88:1d:6c" }
       ]
     }
   ]
@@ -138,7 +158,7 @@ Important flags:
 - `-w, --workers`: concurrent probe workers, `0` uses the platform default
 - `-a, --attempts`: ARP probe attempts per target, default `1`
 
-Output schema:
+Sample output:
 
 ```json
 {
@@ -146,7 +166,21 @@ Output schema:
     {
       "interface": "eth0",
       "subnet": "192.168.1.0/24",
-      "free_ips": ["192.168.1.20", "192.168.1.21"]
+      "free_ips": [
+        "192.168.1.120",
+        "192.168.1.121",
+        "192.168.1.122",
+        "192.168.1.131"
+      ]
+    },
+    {
+      "interface": "wlan0",
+      "subnet": "10.0.0.0/24",
+      "free_ips": [
+        "10.0.0.88",
+        "10.0.0.91",
+        "10.0.0.109"
+      ]
     }
   ]
 }
@@ -168,13 +202,7 @@ Example:
 [DEBUG] total_duration=2.14s responses=18 no_responses=236
 ```
 
-## Technical Details
-
-- Command wiring is implemented with Cobra in `internal/cmd`.
-- Interface and subnet resolution is handled by `internal/iface`.
-- Scan and free-IP logic live in `internal/arp`.
-- Output DTOs live in `internal/output`.
-- ARP replies are deduplicated as `ip -> mac` before JSON is written.
+## Platform Implementation
 
 Backends by platform:
 
@@ -204,17 +232,7 @@ Practical implication:
 To measure speed on your environment:
 
 ```bash
-time sudo go run ./cmd scan --interface eth0 --output devices.json
-```
-
-## Build and Verify
-
-```bash
-go mod tidy
-go build ./...
-go vet ./...
-golangci-lint run ./...
-go test ./... -v -cover
+time sudo arpmap scan --interface eth0 --output devices.json
 ```
 
 ## Packaging
@@ -222,30 +240,12 @@ go test ./... -v -cover
 - GitHub releases publish macOS/Linux archives, Windows zip archives, Debian `.deb` packages, and `checksums.txt`.
 - Debian packages are generated with GoReleaser nFPM packaging.
 
-## Project Layout
-
-```text
-arpmap/
-├── cmd/
-│   └── main.go
-├── internal/
-│   ├── arp/
-│   ├── cmd/
-│   ├── iface/
-│   └── output/
-├── docs/
-├── .github/
-├── AGENTS.md
-├── CONTRIBUTING.md
-└── go.mod
-```
-
 ## Documentation
 
 - [Getting Started](docs/getting-started.md)
-- [Development Guide](docs/development.md)
 - [Architecture](docs/architecture.md)
 - [CI/CD & Release Guide](docs/ci-cd.md)
+- [Contributing](CONTRIBUTING.md)
 
 ## Contributing
 
